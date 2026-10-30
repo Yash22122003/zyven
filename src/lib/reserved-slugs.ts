@@ -19,6 +19,7 @@ export const RESERVED_SLUGS = new Set([
   'pricing',
   'privacy',
   'register',
+  'reset-password',
   'settings',
   'shop',
   'signin',
