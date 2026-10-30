@@ -11,7 +11,18 @@ export async function POST(req: NextRequest) {
       razorpay_signature,
     } = body;
 
+    console.log('[Razorpay Backend] Payment verify request received from client callback:', {
+      orderNumber,
+      razorpay_order_id,
+      razorpay_payment_id,
+      hasSignature: Boolean(razorpay_signature),
+    });
+
     if (!razorpay_payment_id || !razorpay_order_id) {
+      console.warn('[Razorpay Backend] Missing required parameters in verify callback:', {
+        hasPaymentId: Boolean(razorpay_payment_id),
+        hasOrderId: Boolean(razorpay_order_id),
+      });
       return NextResponse.json(
         { error: 'Missing required Razorpay payment parameters' },
         { status: 400 }
@@ -26,6 +37,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (!isValid) {
+      console.error('[Razorpay Backend] Signature verification rejected for order:', {
+        orderNumber,
+        razorpay_order_id,
+      });
       return NextResponse.json(
         { error: 'Invalid Razorpay payment signature' },
         { status: 400 }
@@ -39,6 +54,12 @@ export async function POST(req: NextRequest) {
       razorpayPaymentId: razorpay_payment_id,
       razorpaySignature: razorpay_signature,
       source: 'CALLBACK',
+    });
+
+    console.log('[Razorpay Backend] Callback payment verified and recorded:', {
+      orderNumber: result.order.orderNumber,
+      paymentId: razorpay_payment_id,
+      alreadyPaid: result.alreadyPaid,
     });
 
     return NextResponse.json({

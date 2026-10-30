@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PrismaClient, OrderStatus, MovementType, UserRole } from '@prisma/client';
 import { canTransitionOrder, shouldReleaseStockOnTransition, shouldFulfillStockOnTransition } from '../src/lib/order-machine';
 import { validateAndReserveStock, releaseReservedStock, fulfillOrderStock } from '../src/lib/inventory';
@@ -179,18 +180,30 @@ async function runTests() {
   assert(rzpOrder.amount === 49900, 'Razorpay order amount matches paise (₹499.00 -> 49900)');
   assert(rzpOrder.currency === 'INR', 'Razorpay currency is Indian Rupee (INR)');
 
+  const testPayId = 'pay_test_live_123456';
+  const realSig = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+    .update(`${rzpOrder.id}|${testPayId}`)
+    .digest('hex');
+
   const validSig = verifyPaymentSignature({
     razorpayOrderId: rzpOrder.id,
-    razorpayPaymentId: 'pay_test_123456',
-    razorpaySignature: 'sig_test_valid',
+    razorpayPaymentId: testPayId,
+    razorpaySignature: realSig,
   });
-  assert(validSig === true, 'Validates Razorpay payment signature correctly');
+  assert(validSig === true, 'Validates Razorpay payment signature correctly with HMAC-SHA256');
+
+  const testWebhookPayload = JSON.stringify({ event: 'payment.captured' });
+  const realWebhookSig = crypto
+    .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET!)
+    .update(testWebhookPayload)
+    .digest('hex');
 
   const validWebhook = verifyWebhookSignature({
-    rawBody: JSON.stringify({ event: 'payment.captured' }),
-    signature: 'webhook_sig_test',
+    rawBody: testWebhookPayload,
+    signature: realWebhookSig,
   });
-  assert(validWebhook === true, 'Validates Razorpay webhook signature format');
+  assert(validWebhook === true, 'Validates Razorpay webhook signature format with HMAC-SHA256');
 
   // Test Idempotency with a test order
   if (sharmaStore) {

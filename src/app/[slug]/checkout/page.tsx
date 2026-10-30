@@ -6,6 +6,7 @@ import Script from 'next/script';
 import { useParams, useRouter } from 'next/navigation';
 import { useCart } from '@/hooks/useCart';
 import { formatCurrency } from '@/lib/utils';
+import { loadRazorpayCheckoutScript } from '@/lib/razorpay-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -184,13 +185,23 @@ export default function CheckoutPage() {
   };
 
   // Launch Razorpay Checkout Modal
-  const launchRazorpayModal = (orderData: any) => {
-    if (typeof window === 'undefined' || !window.Razorpay) {
+  const launchRazorpayModal = async (orderData: any) => {
+    console.log('[Razorpay Frontend] launchRazorpayModal called for order:', orderData?.orderNumber);
+
+    const scriptLoaded = await loadRazorpayCheckoutScript();
+    if (!scriptLoaded || typeof window === 'undefined' || !window.Razorpay) {
+      console.error('[Razorpay Frontend] Razorpay SDK is not available on window');
       setError('Payment gateway is loading. Please try again in a moment.');
       return;
     }
 
     const { razorpay, orderNumber, trackingUrl } = orderData;
+
+    console.log('[Razorpay Frontend] Opening Razorpay modal with order_id:', {
+      order_id: razorpay.orderId,
+      amountInPaise: razorpay.amount,
+      keyId: razorpay.keyId ? `${razorpay.keyId.slice(0, 8)}...` : 'MISSING',
+    });
 
     const options = {
       key: razorpay.keyId,
@@ -229,29 +240,47 @@ export default function CheckoutPage() {
         },
       },
       handler: async function (response: any) {
+        console.log('[Razorpay Frontend] Payment success callback received from Razorpay modal:', {
+          razorpay_order_id: response?.razorpay_order_id,
+          razorpay_payment_id: response?.razorpay_payment_id,
+          hasSignature: Boolean(response?.razorpay_signature),
+        });
         await handlePaymentSuccess(orderNumber, response, trackingUrl);
       },
       modal: {
         ondismiss: function () {
+          console.log('[Razorpay Frontend] Razorpay modal dismissed by user');
           setPendingOrder(orderData);
         },
       },
     };
 
-    const rzp = new window.Razorpay(options);
-    rzpInstanceRef.current = rzp;
+    try {
+      const rzp = new window.Razorpay(options);
+      rzpInstanceRef.current = rzp;
 
-    // Handle payment failures from within Razorpay
-    rzp.on('payment.failed', function (resp: any) {
-      const reason = resp.error?.description || 'Payment failed';
-      setError(`Payment could not be completed: ${reason}`);
-      setPendingOrder(orderData);
-    });
+      // Handle payment failures from within Razorpay
+      rzp.on('payment.failed', function (resp: any) {
+        const reason = resp.error?.description || 'Payment failed';
+        console.warn('[Razorpay Frontend] Payment failure callback received from modal:', {
+          code: resp.error?.code,
+          description: resp.error?.description,
+          reason: resp.error?.reason,
+          step: resp.error?.step,
+        });
+        setError(`Payment could not be completed: ${reason}`);
+        setPendingOrder(orderData);
+      });
 
-    rzp.open();
+      rzp.open();
+      console.log('[Razorpay Frontend] Razorpay modal opened successfully on screen');
 
-    // Start cross-device QR scanning detection
-    startCrossDevicePolling(orderNumber, trackingUrl);
+      // Start cross-device QR scanning detection
+      startCrossDevicePolling(orderNumber, trackingUrl);
+    } catch (err: unknown) {
+      console.error('[Razorpay Frontend] Error initializing Razorpay instance:', err);
+      setError('Could not open payment window. Please retry.');
+    }
   };
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
@@ -259,7 +288,17 @@ export default function CheckoutPage() {
     setError('');
     setLoading(true);
 
+    console.log('[Razorpay Frontend] Payment button clicked (Checkout flow)', {
+      businessSlug: slug,
+      customerName: customerName.trim(),
+      itemsCount: cart.items.length,
+      subtotal,
+    });
+
     try {
+      // Ensure checkout script is loaded early
+      loadRazorpayCheckoutScript();
+
       const payload = {
         businessSlug: slug,
         customerName: customerName.trim(),
@@ -273,6 +312,7 @@ export default function CheckoutPage() {
         })),
       };
 
+      console.log('[Razorpay Frontend] Sending checkout order creation request to /api/checkout');
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -281,13 +321,20 @@ export default function CheckoutPage() {
 
       const data = await res.json();
       if (!res.ok) {
+        console.error('[Razorpay Frontend] /api/checkout returned error status:', res.status, data.error);
         throw new Error(data.error || 'Failed to place pickup order');
       }
 
+      console.log('[Razorpay Frontend] Checkout order placed, launching Razorpay modal:', {
+        orderNumber: data.orderNumber,
+        razorpayOrderId: data.razorpay?.orderId,
+      });
+
       setPendingOrder(data);
-      launchRazorpayModal(data);
+      await launchRazorpayModal(data);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Checkout failed';
+      console.error('[Razorpay Frontend] Checkout flow failed:', message);
       setError(message);
     } finally {
       setLoading(false);

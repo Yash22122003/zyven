@@ -18,6 +18,12 @@ export async function POST(req: NextRequest) {
     const event = JSON.parse(rawBody);
     const eventType = event.event;
 
+    console.log('[Razorpay Backend] Webhook event received:', {
+      event: eventType,
+      eventId: event.id,
+      containsSignature: Boolean(signature),
+    });
+
     // Handle payment.captured or order.paid
     if (eventType === 'payment.captured' || eventType === 'order.paid') {
       const paymentEntity = event.payload?.payment?.entity;
@@ -29,6 +35,13 @@ export async function POST(req: NextRequest) {
         paymentEntity?.notes?.orderNumber ||
         orderEntity?.notes?.orderNumber ||
         undefined;
+
+      console.log('[Razorpay Backend] Processing verified payment webhook event:', {
+        eventType,
+        orderNumber,
+        rzpOrderId,
+        paymentId,
+      });
 
       if (paymentId || rzpOrderId) {
         await markOrderAsPaidAndCompleted({

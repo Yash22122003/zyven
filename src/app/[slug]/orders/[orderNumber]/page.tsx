@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Script from 'next/script';
 import { useParams } from 'next/navigation';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { loadRazorpayCheckoutScript } from '@/lib/razorpay-client';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -79,82 +80,144 @@ export default function OrderTrackingPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleRetryPayment = () => {
-    if (typeof window === 'undefined' || !window.Razorpay) {
-      alert('Razorpay payment gateway is still loading. Please retry in a few seconds.');
-      return;
-    }
+  const handleRetryPayment = async () => {
+    console.log('[Razorpay Frontend] Payment button clicked (Retry / Tracking page flow)', {
+      orderNumber,
+      amount: data?.order?.totalAmount,
+    });
 
     if (!data?.order) return;
 
     setIsRetrying(true);
-    const order = data.order;
-    const business = data.business;
 
-    const options = {
-      key: order.razorpayKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
-      amount: Math.round(order.totalAmount * 100),
-      currency: 'INR',
-      name: business.name || 'ZYVEN Store',
-      description: `Order #${order.orderNumber}`,
-      order_id: order.razorpayOrderId,
-      prefill: {
-        name: order.customerName,
-        email: order.customerEmail || undefined,
-        contact: order.customerPhone,
-      },
-      notes: {
-        orderNumber: order.orderNumber,
-      },
-      theme: {
-        color: '#09090b',
-      },
-      config: {
-        display: {
-          blocks: {
-            upi: {
-              name: 'Pay with UPI / QR',
-              instruments: [
-                {
-                  method: 'upi',
-                },
-              ],
+    try {
+      // 1. Ensure checkout script is loaded
+      const scriptReady = await loadRazorpayCheckoutScript();
+      if (!scriptReady || typeof window === 'undefined' || !window.Razorpay) {
+        console.error('[Razorpay Frontend] Failed to load Razorpay checkout script on tracking page');
+        alert('Razorpay payment gateway is still loading. Please retry in a few seconds.');
+        setIsRetrying(false);
+        return;
+      }
+
+      // 2. Prepare or fetch a verified Razorpay order from backend
+      console.log('[Razorpay Frontend] Requesting verified Razorpay order from /api/payment/razorpay/create-order');
+      const prepRes = await fetch('/api/payment/razorpay/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderNumber }),
+      });
+
+      const prepData = await prepRes.json();
+      if (!prepRes.ok) {
+        console.error('[Razorpay Frontend] Failed to prepare Razorpay payment:', prepData.error);
+        alert(prepData.error || 'Failed to prepare payment. Please try again.');
+        setIsRetrying(false);
+        return;
+      }
+
+      if (prepData.alreadyPaid) {
+        console.log('[Razorpay Frontend] Order is already marked as paid');
+        fetchOrder();
+        setIsRetrying(false);
+        return;
+      }
+
+      const rzpConfig = prepData.razorpay;
+      console.log('[Razorpay Frontend] Opening Razorpay modal with order_id:', {
+        orderId: rzpConfig.orderId,
+        amountInPaise: rzpConfig.amount,
+        keyId: rzpConfig.keyId ? `${rzpConfig.keyId.slice(0, 8)}...` : 'MISSING',
+      });
+
+      const options = {
+        key: rzpConfig.keyId,
+        amount: rzpConfig.amount,
+        currency: rzpConfig.currency || 'INR',
+        name: rzpConfig.name || data.business?.name || 'ZYVEN Store',
+        description: rzpConfig.description || `Order #${orderNumber}`,
+        order_id: rzpConfig.orderId,
+        prefill: {
+          name: prepData.customerName || data.order.customerName,
+          email: prepData.customerEmail || data.order.customerEmail || undefined,
+          contact: prepData.customerPhone || data.order.customerPhone,
+        },
+        notes: {
+          orderNumber,
+        },
+        theme: {
+          color: '#09090b',
+        },
+        config: {
+          display: {
+            blocks: {
+              upi: {
+                name: 'Pay with UPI / QR',
+                instruments: [
+                  {
+                    method: 'upi',
+                  },
+                ],
+              },
+            },
+            sequence: ['block.upi'],
+            preferences: {
+              show_default_blocks: true,
             },
           },
-          sequence: ['block.upi'],
-          preferences: {
-            show_default_blocks: true,
+        },
+        handler: async function (response: any) {
+          console.log('[Razorpay Frontend] Payment success callback received from modal:', {
+            razorpay_order_id: response?.razorpay_order_id,
+            razorpay_payment_id: response?.razorpay_payment_id,
+          });
+
+          try {
+            const verifyRes = await fetch('/api/payment/razorpay/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderNumber,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+            const verifyData = await verifyRes.json();
+            console.log('[Razorpay Frontend] Verify endpoint response:', verifyData);
+            fetchOrder();
+          } catch (err) {
+            console.error('[Razorpay Frontend] Verification callback network error:', err);
+            fetchOrder();
+          } finally {
+            setIsRetrying(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            console.log('[Razorpay Frontend] Razorpay modal dismissed by user');
+            setIsRetrying(false);
           },
         },
-      },
-      handler: async function (response: any) {
-        try {
-          await fetch('/api/payment/razorpay/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              orderNumber: order.orderNumber,
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            }),
-          });
-          fetchOrder();
-        } catch {
-          fetchOrder();
-        } finally {
-          setIsRetrying(false);
-        }
-      },
-      modal: {
-        ondismiss: function () {
-          setIsRetrying(false);
-        },
-      },
-    };
+      };
 
-    const rzp = new window.Razorpay(options);
-    rzp.open();
+      const rzp = new window.Razorpay(options);
+
+      rzp.on('payment.failed', function (resp: any) {
+        console.warn('[Razorpay Frontend] Payment failed callback:', {
+          code: resp.error?.code,
+          description: resp.error?.description,
+          reason: resp.error?.reason,
+        });
+        setIsRetrying(false);
+      });
+
+      rzp.open();
+      console.log('[Razorpay Frontend] Razorpay modal opened successfully');
+    } catch (err: unknown) {
+      console.error('[Razorpay Frontend] Error launching payment retry:', err);
+      setIsRetrying(false);
+    }
   };
 
   if (loading) {

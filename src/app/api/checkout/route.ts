@@ -30,6 +30,13 @@ export async function POST(req: NextRequest) {
       items,
     } = parsed.data;
 
+    console.log('[Razorpay Backend] Payment request received at /api/checkout:', {
+      businessSlug,
+      customerName,
+      itemsCount: items.length,
+      paymentMethod,
+    });
+
     // Verify business exists and is active
     const business = await prisma.business.findUnique({
       where: { slug: businessSlug.toLowerCase() },
@@ -182,6 +189,13 @@ export async function POST(req: NextRequest) {
       });
 
       return order;
+    });
+
+    console.log('[Razorpay Backend] Order created and Razorpay payload prepared:', {
+      orderNumber: createdOrder.orderNumber,
+      razorpayOrderId: rzpOrder.id,
+      amountInPaise: rzpOrder.amount,
+      currency: rzpOrder.currency,
     });
 
     return NextResponse.json({
