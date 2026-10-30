@@ -1,0 +1,398 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  MERCHANT
+  CUSTOMER
+}
+
+enum StockDisplayMode {
+  EXACT_COUNT
+  AVAILABILITY_STATUS
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY_FOR_PICKUP
+  COLLECTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentMethod {
+  PAY_AT_STORE
+  UPI_ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum MovementType {
+  INITIAL_STOCK
+  MANUAL_ADJUSTMENT
+  ORDER_RESERVED
+  ORDER_RELEASED
+  ORDER_FULFILLED
+  RESTOCK
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  GRACE_PERIOD
+  EXPIRED
+  CANCELLED
+}
+
+enum SubscriptionPaymentStatus {
+  SUCCESS
+  PENDING
+  FAILED
+}
+
+enum NotificationType {
+  NEW_ORDER
+  ORDER_STATUS_CHANGE
+  LOW_STOCK
+  SUBSCRIPTION_ALERT
+  SYSTEM
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String?       @unique
+  phone        String?       @unique
+  passwordHash String
+  fullName     String
+  role         UserRole      @default(CUSTOMER)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  businesses   Business[]    @relation("BusinessOwner")
+  orders       Order[]       @relation("CustomerOrders")
+  notifications Notification[]
+  auditLogs    AuditLog[]    @relation("UserAuditLogs")
+  inventoryMovements InventoryMovement[] @relation("ActorInventoryMovements")
+  orderStatusHistories OrderStatusHistory[] @relation("ActorOrderStatusHistory")
+
+  @@map("users")
+}
+
+model Category {
+  id           String     @id @default(uuid())
+  name         String
+  slug         String     @unique
+  icon         String?
+  displayOrder Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  businesses   Business[]
+  products     Product[]
+
+  @@map("categories")
+}
+
+model Business {
+  id                        String              @id @default(uuid())
+  ownerId                   String
+  categoryId                String
+  name                      String
+  slug                      String              @unique
+  description               String?             @db.Text
+  logoUrl                   String?
+  bannerUrl                 String?
+  phone                     String
+  email                     String?
+  addressLine1              String
+  addressLine2              String?
+  city                      String
+  state                     String
+  pincode                   String
+  isVerified                Boolean             @default(false)
+  isActive                  Boolean             @default(true)
+  isOpenManually            Boolean             @default(true)
+  stockDisplayMode          StockDisplayMode    @default(AVAILABILITY_STATUS)
+  pickupInstructions        String?             @db.Text
+  estimatedPrepTimeMinutes  Int                 @default(20)
+  upiId                     String?
+  upiName                   String?
+  enableUpiQr               Boolean             @default(true)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  owner                     User                @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  category                  Category            @relation(fields: [categoryId], references: [id])
+  operatingHours            OperatingHour[]
+  products                  Product[]
+  inventory                 Inventory[]
+  inventoryMovements        InventoryMovement[]
+  orders                    Order[]
+  subscription              BusinessSubscription?
+  subscriptionPayments      SubscriptionPayment[]
+  notifications             Notification[]
+  auditLogs                 AuditLog[]
+
+  @@index([ownerId])
+  @@index([categoryId])
+  @@index([slug])
+  @@map("businesses")
+}
+
+model OperatingHour {
+  id         String   @id @default(uuid())
+  businessId String
+  dayOfWeek  Int      // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  openTime   String   // HH:mm format, e.g. "09:00"
+  closeTime  String   // HH:mm format, e.g. "21:00"
+  isClosed   Boolean  @default(false)
+
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, dayOfWeek])
+  @@index([businessId])
+  @@map("operating_hours")
+}
+
+model Product {
+  id              String        @id @default(uuid())
+  businessId      String
+  categoryId      String?
+  name            String
+  slug            String
+  description     String?       @db.Text
+  sku             String?
+  barcode         String?
+  price           Decimal       @db.Decimal(12, 2)
+  compareAtPrice  Decimal?      @db.Decimal(12, 2)
+  imageUrl        String?
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category        Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  inventory       Inventory?
+  orderItems      OrderItem[]
+  movements       InventoryMovement[]
+
+  @@unique([businessId, slug])
+  @@index([businessId])
+  @@index([categoryId])
+  @@map("products")
+}
+
+model Inventory {
+  id                 String   @id @default(uuid())
+  businessId         String
+  productId          String   @unique
+  quantityOnHand     Int      @default(0)
+  quantityReserved   Int      @default(0)
+  lowStockThreshold  Int      @default(5)
+  updatedAt          DateTime @updatedAt
+
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("inventory")
+}
+
+model InventoryMovement {
+  id                  String       @id @default(uuid())
+  businessId          String
+  productId           String
+  actorId             String?
+  changeQuantity      Int
+  newQuantityOnHand   Int
+  movementType        MovementType
+  referenceId         String?
+  reason              String?
+  createdAt           DateTime     @default(now())
+
+  business            Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product             Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  actor               User?        @relation("ActorInventoryMovements", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([productId])
+  @@map("inventory_movements")
+}
+
+model Order {
+  id                   String               @id @default(uuid())
+  orderNumber          String               @unique
+  businessId           String
+  customerId           String?
+  customerName         String
+  customerPhone        String
+  customerEmail        String?
+  status               OrderStatus          @default(PENDING)
+  subtotal             Decimal              @db.Decimal(12, 2)
+  taxAmount            Decimal              @default(0.00) @db.Decimal(12, 2)
+  totalAmount          Decimal              @db.Decimal(12, 2)
+  paymentMethod        PaymentMethod        @default(PAY_AT_STORE)
+  paymentStatus        PaymentStatus        @default(PENDING)
+  upiTransactionRef    String?
+  pickupNotes          String?              @db.Text
+  estimatedPickupTime  DateTime?
+  rejectionReason      String?
+  expiresAt            DateTime
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  business             Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer             User?                @relation("CustomerOrders", fields: [customerId], references: [id], onDelete: SetNull)
+  items                OrderItem[]
+  statusHistory        OrderStatusHistory[]
+
+  @@index([businessId])
+  @@index([customerPhone])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid())
+  orderId     String
+  productId   String
+  productName String
+  productSku  String?
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  quantity    Int
+  totalPrice  Decimal  @db.Decimal(12, 2)
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id         String   @id @default(uuid())
+  orderId    String
+  fromStatus String?
+  toStatus   String
+  actorId    String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor      User?    @relation("ActorOrderStatusHistory", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model SubscriptionPlan {
+  id                    String                 @id @default(uuid())
+  name                  String
+  code                  String                 @unique
+  priceInr              Decimal                @db.Decimal(10, 2)
+  billingIntervalMonths Int                    @default(1)
+  isIntroductory        Boolean                @default(false)
+  introDurationMonths   Int                    @default(3)
+  isActive              Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  subscriptions         BusinessSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model BusinessSubscription {
+  id                  String               @id @default(uuid())
+  businessId          String               @unique
+  planId              String
+  status              SubscriptionStatus   @default(ACTIVE)
+  startedAt           DateTime             @default(now())
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  introMonthsConsumed Int                  @default(0)
+  gracePeriodEndsAt   DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan                SubscriptionPlan     @relation(fields: [planId], references: [id])
+  payments            SubscriptionPayment[]
+
+  @@index([businessId])
+  @@map("business_subscriptions")
+}
+
+model SubscriptionPayment {
+  id                   String                    @id @default(uuid())
+  subscriptionId       String
+  businessId           String
+  amount               Decimal                   @db.Decimal(10, 2)
+  currency             String                    @default("INR")
+  status               SubscriptionPaymentStatus
+  gatewayTransactionId String?
+  paymentMethod        String
+  createdAt            DateTime                  @default(now())
+
+  subscription         BusinessSubscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  business             Business                  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([businessId])
+  @@map("subscription_payments")
+}
+
+model Notification {
+  id              String           @id @default(uuid())
+  recipientUserId String
+  businessId      String?
+  title           String
+  message         String           @db.Text
+  type            NotificationType
+  link            String?
+  isRead          Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+
+  recipient       User             @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  business        Business?        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId])
+  @@index([businessId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  businessId   String?
+  action       String
+  entityType   String
+  entityId     String
+  metadataJson Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  actor        User?     @relation("UserAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  business     Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([actorId])
+  @@index([businessId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

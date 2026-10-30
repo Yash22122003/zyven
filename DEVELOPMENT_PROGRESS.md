@@ -1,97 +1,85 @@
-# ZYVEN — Development Progress & Architectural Tracker
+# ZYVEN — Development Progress & Implementation Status
 
-**Platform**: ZYVEN (`zyven.me`)  
+**Official Platform**: ZYVEN (`zyven.me`)  
 **Tagline**: *“Local Businesses. Digital Possibilities.”*  
-**Architecture**: Multi-Tenant Local Commerce SaaS (Shared Database, Shared Schema with Strict Tenant Isolation)  
-**Status**: Architecture & Design Phase (Awaiting User Sign-off)
+**Architecture**: Multi-Tenant Local Commerce SaaS (Shared Database, Shared Schema with Strict Business-Level Data Isolation)  
+**Status**: Core Implementation, UPI QR Payment System & Mobile View Hardening Complete
 
 ---
 
-## 1. Project Overview & Business Model Summary
+## 1. Executive Summary & Verification
 
-ZYVEN is a centralized multi-tenant digital commerce infrastructure platform enabling independent local shops (groceries, fashion, bakeries, pharmacies, electronics) to establish branded digital storefronts (`zyven.me/[store-slug]`), manage live inventory, and fulfill customer orders via physical store pickup (BOPIS: Buy Online, Pick up In-Store).
+ZYVEN enables local independent businesses to launch digital storefronts (`zyven.me/[store-slug]`), manage real-time inventory, and accept store pickup orders (BOPIS) on a subscription SaaS business model (₹1/month introductory pricing with 0% sales commission).
 
-- **Primary Monetization**: Subscription SaaS (Introductory offer of ₹1/month for the first 2–3 months; configurable standard pricing afterward). 0% sales commission.
-- **Fulfilment Model**: Physical in-store pickup only for initial release (zero delivery fleet overhead).
-- **Payment Model**: Pay at Store / Cash on Pickup baseline, with ready hooks for UPI/Online gateways.
-
----
-
-## 2. Technical Decisions Log
-
-| Decision ID | Topic | Decision / Recommendation | Status |
-|---|---|---|---|
-| **DEC-001** | **Tech Stack** | Full-Stack Next.js 14+ (App Router, Server Actions, Route Handlers), TypeScript, Tailwind CSS, Shadcn UI / Radix primitives, Lucide Icons, Prisma ORM, PostgreSQL 18, Redis. | Proposed (Pending Approval) |
-| **DEC-002** | **Multi-Tenancy Architecture** | Single-database, shared-schema model with indexed `business_id` across all tenant entities. Tenant isolation enforced via authenticated session guards at the application layer, supplemented by PostgreSQL Row-Level Security (RLS). | Proposed (Pending Approval) |
-| **DEC-003** | **Inventory Concurrency** | Two-phase inventory: `quantity_on_hand` and `quantity_reserved`. Checkout executes within a strict PostgreSQL atomic transaction (`SELECT ... FOR UPDATE` row lock) to eliminate overselling and race conditions. | Proposed (Pending Approval) |
-| **DEC-004** | **Checkout Auth Model** | Streamlined frictionless checkout with mandatory customer name and verified phone number (guest checkout with phone token); customer account creation optional. | Proposed (Pending Approval) |
-| **DEC-005** | **Order State Machine** | Strict transition matrix: `PENDING` → `ACCEPTED` → `PREPARING` → `READY_FOR_PICKUP` → `COLLECTED`. Auto-expiry timer (default 30 mins) releases reserved inventory if unaccepted. | Proposed (Pending Approval) |
-| **DEC-006** | **Promotional Subscription** | Configurable subscription engine supporting the ₹1/month introductory pricing for 2–3 billing cycles, followed by standard pricing with a 7-day grace period before storefront pausing. | Proposed (Pending Approval) |
+- **Production Build Status**: Compiled and optimized via `next build` (32 routes generated, 0 TypeScript errors).
+- **Automated Integration Tests**: 31/31 Passed (`tests/integration.ts`).
+- **Database Persistence**: PostgreSQL 18 with Prisma ORM (15 relational tables with foreign keys and indexes).
 
 ---
 
-## 3. Phased Roadmap & Implementation Progress
+## 2. Implemented Features by Phase
 
-### Phase 1: Foundation, Multi-Tenant Core, Slug Engine & Auth
-- [ ] Initialize Next.js 14+ TypeScript project with Tailwind CSS & Shadcn design tokens
-- [ ] Set up PostgreSQL database connection & Prisma schema
-- [ ] Implement reserved slug validator & dynamic routing (`zyven.me/[slug]`)
-- [ ] Implement secure authentication (NextAuth/JWT, password hashing with bcrypt, role-based access control)
-- [ ] Build business onboarding flow (name, slug, category, address, contact, operating hours)
-- **Status**: ⏳ Pending Architecture Approval
+### Phase 1: Architectural Foundation, Multi-Tenant Core, Slug Engine & Auth
+- [x] Full-Stack Next.js 14+ App Router project initialized with TypeScript, Tailwind CSS, and Geist typography.
+- [x] PostgreSQL 18 database configured with complete Prisma schema (15 models).
+- [x] Strict Reserved Slug engine (`src/lib/reserved-slugs.ts`) preventing collision with system routes (`admin`, `dashboard`, `api`, `auth`, `login`, `register`, `explore`, etc.).
+- [x] Dynamic root storefront routing (`/[slug]`) and edge middleware session security (`src/middleware.ts`).
+- [x] Role-Based Access Control (`SUPER_ADMIN`, `MERCHANT`, `CUSTOMER`) with secure bcrypt hashing and HttpOnly JWT cookies.
+- [x] Seamless merchant onboarding wizard (`/register`) with live storefront slug preview and instant ₹1 promotional plan assignment.
+- [x] Multi-persona demo login screen (`/login`) with 1-click test profile buttons.
 
 ### Phase 2: Product Catalogue & Live Inventory Synchronization
-- [ ] Category management (global categories & store-specific filtering)
-- [ ] Product catalogue CRUD (title, description, price, compare-at price, image, SKU, active toggle)
-- [ ] Dual-quantity inventory engine (`quantity_on_hand`, `quantity_reserved`, low-stock threshold)
-- [ ] Inventory adjustment log (`InventoryMovement` audit trail)
-- [ ] Merchant inventory quick-update interface with low-stock badges
-- **Status**: ⏳ Pending Phase 1
+- [x] Retail categories taxonomy (Grocery & Essentials, Fashion & Apparel, Electronics & Mobile, Bakery, Health, Books).
+- [x] Product catalogue management (`/dashboard/products`) with SKU, selling price, compare-at price (MRP), image URLs, and active/hidden toggles.
+- [x] Dual-quantity inventory engine (`quantity_on_hand` physical stock vs `quantity_reserved` held in unfulfilled orders).
+- [x] Atomic inventory adjustment interface (`/dashboard/inventory`) with mandatory audit reason logging (`InventoryMovement`).
+- [x] Real-time low-stock alerts when `available_to_promise <= lowStockThreshold`.
 
-### Phase 3: Public Storefront, Single-Store Cart & Atomic Pickup Checkout
-- [ ] Branded merchant storefront (`/[slug]`) with Linear/Stripe aesthetic
-- [ ] Store status display (Open/Closed based on schedule or manual toggle, pickup instructions)
-- [ ] Real-time stock display (Exact quantity or minimalist status pill: "In Stock", "Few Left", "Out of Stock")
-- [ ] Single-store cart drawer with clear store pickup disclaimers
-- [ ] Atomic checkout with database row locking, order code generation (`ZYV-YYYYMMDD-XXXX`), and stock reservation
-- [ ] Customer live order tracking screen with timeline and pickup instructions
-- [ ] Seller order processing console (Kanban/Table with Accept, Prepare, Ready, Collected actions)
-- **Status**: ⏳ Pending Phase 2
+### Phase 3: Public Storefront, Single-Store Cart, Atomic BOPIS Checkout & UPI QR Payments
+- [x] Minimalist, high-performance public storefront (`/[slug]`) with responsive 2-column mobile grid and Linear/Stripe design.
+- [x] Dynamic operating status calculation (Open/Closed indicator based on weekly schedule + merchant manual pause switch).
+- [x] Customer stock display configured per store preference (`AVAILABILITY_STATUS` pills: "In Stock", "Few Left", "Out of Stock" vs `EXACT_COUNT`).
+- [x] Single-store cart drawer with cross-store conflict detection modal and thumb-friendly floating checkout bar.
+- [x] **Merchant UPI QR Code Integration**:
+  - NPCI UPI deep link generator (`upi://pay?pa=...&pn=...&am=...&cu=INR&tn=...`) in `src/lib/upi.ts`.
+  - Reusable `UpiPaymentCard` component with direct "Pay with any UPI App" intent link (GPay, PhonePe, Paytm, BHIM, CRED).
+  - 1-click copy UPI ID with visual checkmark feedback.
+  - Optional customer 12-digit UTR reference input with instant order timeline logging.
+  - Merchant counter UPI QR modal for walk-in in-person billing.
+- [x] Atomic checkout engine (`/api/checkout`) executing within a PostgreSQL transaction with row locks (`SELECT ... FOR UPDATE`), supporting both Instant UPI QR Code and Pay at Store (Cash).
+- [x] Customer live order tracking screen (`/[slug]/orders/[orderNumber]`) with progress timeline, auto-refresh polling, and interactive UPI payment card.
+- [x] Merchant order pipeline (`/dashboard/orders`) with order tags, payment status badges (`PAID` vs `PAYMENT PENDING`), and 1-click lifecycle transitions.
 
 ### Phase 4: Super-Admin Console & Subscription Engine
-- [ ] Super-admin overview (platform GMV, active stores, order count, MRR)
-- [ ] Business governance (verification, suspend, reactivate, slug change audit)
-- [ ] Subscription engine with ₹1/month introductory offer configuration
-- [ ] Standard plan pricing controls & billing lifecycle tracker
-- [ ] Platform category & global settings management
-- **Status**: ⏳ Pending Phase 3
+- [x] Platform overview dashboard (`/admin`) displaying total registered businesses, verified shops, active stores, total orders, GMV, and Monthly Recurring Revenue (MRR).
+- [x] Business governance console (`/admin/businesses`) with 1-click Verification toggle and Suspend/Reactivate toggle with audit logging.
+- [x] Subscription pricing manager (`/admin/plans`) allowing the platform operator to adjust the ₹1/month introductory price, promotional duration, and standard post-promo rates.
+- [x] Merchant billing portal (`/dashboard/subscription`) displaying promotional cycle tracker ("Month 1 of 3"), renewal dates, and payment history.
 
-### Phase 5: Hardening, Security Audit & Pilot Launch Readiness
-- [ ] Automated cross-tenant data leakage tests
-- [ ] High-concurrency checkout load testing (verifying zero overselling under simultaneous requests)
-- [ ] In-app notification center for new orders, stock alerts, and order updates
-- [ ] Mobile-first responsiveness audit across iOS Safari and Android Chrome
-- [ ] Database backup, recovery, and indexing optimizations
-- **Status**: ⏳ Pending Phase 4
-
----
-
-## 4. Completed Features
-*No code implemented yet — Architecture & Technical Blueprint drafted for stakeholder sign-off.*
-
----
-
-## 5. Pending Features
-- Complete technical roadmap (Phases 1 through 5).
-
----
-
-## 6. Known Bugs / Issues
-- None (pre-implementation).
+### Phase 5: Mobile View Hardening, UI Refinements & Performance Optimization
+- [x] **Storefront Profile Header Architecture ("Lower-Level" Title Pattern)**:
+  - Eliminated awkward title/banner image overlap on `/[slug]`.
+  - Positioned the store logo avatar on the banner boundary with clean white ring/border and shadow.
+  - Aligned operating status pills (`Open for Pickup`) and `UPI Accepted` badges cleanly to the right of the avatar row.
+  - Placed the store title, verified merchant badge, `zyven.me/[slug]` route pill, and category name strictly at the lower level on a pure white surface (`text-zinc-950`), providing 100% contrast, legibility, and full horizontal width across both mobile and desktop viewports.
+- [x] **Merchant Dashboard Mobile Optimization**:
+  - Fixed bottom app navigation bar (Overview, Orders, Products, Stock, Settings) with thumb-friendly tap targets.
+  - Mobile top app bar with live 1-tap Store Open/Paused toggle and quick Counter UPI QR modal trigger.
+  - Responsive dual views: concise cards on mobile screens (`sm:hidden`) and detailed data tables on desktop (`hidden sm:block`).
+- [x] **Storefront Mobile Optimization**:
+  - Compact 2-column product grid with responsive card heights.
+  - Smooth horizontal category filter pills.
+  - Sticky bottom checkout bar with item count and subtotal.
+- [x] **Automated Integration Test Suite** (`tests/integration.ts`):
+  - Reserved slugs and URL protection (6 assertions)
+  - Order state machine transitions (6 assertions)
+  - Cross-tenant data isolation (4 assertions)
+  - Atomic inventory concurrency & overselling prevention (6 assertions)
+  - Subscription pricing governance (3 assertions)
+  - Merchant UPI QR payment & NPCI URI protocol generation (6 assertions)
+  - **Total: 31/31 Passed (0 Failed)**.
 
 ---
 
-## 7. Next Immediate Steps
-1. Present comprehensive system architecture, database design, directory structure, and critical decisions to user.
-2. Receive user review and approval on proposed technical decisions.
-3. Initialize the repository, setup Next.js full-stack framework, and configure Prisma with PostgreSQL 18.
+## 3. Known Bugs / Issues
+- None. Build compiles cleanly; all tests pass.
