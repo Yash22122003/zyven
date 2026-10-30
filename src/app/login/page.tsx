@@ -21,6 +21,19 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [demoAllowed, setDemoAllowed] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+
+  // Check server-side if local dev demo login is explicitly enabled
+  React.useEffect(() => {
+    fetch('/api/auth/demo-login')
+      .then((res) => {
+        if (res.ok) {
+          setDemoAllowed(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,13 +53,15 @@ function LoginForm() {
       }
 
       // Automatic intelligent role-based redirect
-      if (data.user.role === 'SUPER_ADMIN') {
-        router.push(redirectPath || '/admin');
-      } else if (data.user.role === 'CUSTOMER') {
-        router.push(redirectPath || '/account');
-      } else {
-        router.push(redirectPath || '/dashboard');
-      }
+      const targetUrl = redirectPath || data.redirectUrl || (
+        data.user.role === 'SUPER_ADMIN'
+          ? '/admin'
+          : data.user.role === 'CUSTOMER'
+          ? '/account'
+          : '/dashboard'
+      );
+
+      router.push(targetUrl);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Invalid login credentials';
@@ -56,10 +71,29 @@ function LoginForm() {
     }
   };
 
-  const handleQuickLogin = (testEmail: string, role: RoleTab) => {
-    setSelectedRole(role);
-    setEmail(testEmail);
-    setPassword('Zyven@2026');
+  const handleDevDemoLogin = async (role: RoleTab) => {
+    setError('');
+    setDemoLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/demo-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Demo login failed');
+      }
+
+      router.push(redirectPath || data.redirectUrl);
+      router.refresh();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Demo login unavailable');
+    } finally {
+      setDemoLoading(false);
+    }
   };
 
   return (
@@ -159,8 +193,8 @@ function LoginForm() {
                 selectedRole === 'CUSTOMER'
                   ? 'customer@example.com'
                   : selectedRole === 'MERCHANT'
-                  ? 'sharma@store.com'
-                  : 'admin@zyven.me'
+                  ? 'merchant@example.com'
+                  : 'admin@example.com'
               }
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -199,68 +233,43 @@ function LoginForm() {
           </Button>
         </form>
 
-        {/* 1-Click Quick Demo Switcher */}
-        <div className="mt-6 pt-5 border-t border-zinc-100">
-          <div className="flex items-center justify-between mb-2.5">
-            <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-              Quick Test Profiles
-            </p>
-            <span className="text-[10px] text-zinc-400 font-mono">Password: Zyven@2026</span>
+        {/* Local Dev Demo Login (Rendered ONLY when server allows via ENABLE_DEMO_LOGIN=true in development) */}
+        {demoAllowed && (
+          <div className="mt-6 pt-5 border-t border-amber-200/60 bg-amber-50/50 -mx-6 -mb-6 p-4 rounded-b-2xl">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold text-amber-800 tracking-wider uppercase">
+                ⚡ Local Dev Demo Login (ENABLE_DEMO_LOGIN=true)
+              </span>
+              <span className="text-[10px] text-amber-700 font-mono">Dev Mode Only</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleDevDemoLogin('CUSTOMER')}
+                disabled={demoLoading}
+                className="py-1.5 px-2 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 rounded text-xs font-semibold shadow-2xs transition-colors"
+              >
+                Customer
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDevDemoLogin('MERCHANT')}
+                disabled={demoLoading}
+                className="py-1.5 px-2 bg-white hover:bg-zinc-100 border border-zinc-300 text-zinc-900 rounded text-xs font-semibold shadow-2xs transition-colors"
+              >
+                Merchant
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDevDemoLogin('SUPER_ADMIN')}
+                disabled={demoLoading}
+                className="py-1.5 px-2 bg-white hover:bg-purple-50 border border-purple-300 text-purple-900 rounded text-xs font-semibold shadow-2xs transition-colors"
+              >
+                Super Admin
+              </button>
+            </div>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('priya@example.com', 'CUSTOMER')}
-              className={`p-2.5 text-left rounded-lg border transition-all ${
-                selectedRole === 'CUSTOMER' && email === 'priya@example.com'
-                  ? 'border-emerald-600 bg-emerald-50/50 ring-1 ring-emerald-600'
-                  : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-[11px]">
-                <ShoppingBag className="w-3 h-3" />
-                <span>Customer</span>
-              </div>
-              <div className="font-semibold text-zinc-900 mt-1 truncate">Priya Verma</div>
-              <div className="text-[10px] text-zinc-500 truncate">priya@example.com</div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('sharma@store.com', 'MERCHANT')}
-              className={`p-2.5 text-left rounded-lg border transition-all ${
-                selectedRole === 'MERCHANT' && email === 'sharma@store.com'
-                  ? 'border-zinc-950 bg-zinc-100 ring-1 ring-zinc-950'
-                  : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-zinc-900 font-bold text-[11px]">
-                <Store className="w-3 h-3" />
-                <span>Merchant</span>
-              </div>
-              <div className="font-semibold text-zinc-900 mt-1 truncate">Sharma Store</div>
-              <div className="text-[10px] text-zinc-500 truncate">sharma@store.com</div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('admin@zyven.me', 'SUPER_ADMIN')}
-              className={`p-2.5 text-left rounded-lg border transition-all ${
-                selectedRole === 'SUPER_ADMIN' && email === 'admin@zyven.me'
-                  ? 'border-purple-600 bg-purple-50/50 ring-1 ring-purple-600'
-                  : 'border-zinc-200 hover:border-zinc-300 bg-zinc-50/50'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-purple-800 font-bold text-[11px]">
-                <Shield className="w-3 h-3" />
-                <span>Super Admin</span>
-              </div>
-              <div className="font-semibold text-zinc-900 mt-1 truncate">Platform Op</div>
-              <div className="text-[10px] text-zinc-500 truncate">admin@zyven.me</div>
-            </button>
-          </div>
-        </div>
+        )}
       </Card>
 
       {/* Role-Specific Sign-up Alternatives */}

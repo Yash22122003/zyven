@@ -43,8 +43,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     fetch('/api/merchant/overview')
-      .then((res) => {
+      .then(async (res) => {
         if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          if (res.status === 403 && errData.redirectUrl) {
+            router.push(errData.redirectUrl);
+            return null;
+          }
           router.push('/login?redirect=/dashboard');
           return null;
         }
@@ -52,6 +57,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       })
       .then((data) => {
         if (data && data.business) {
+          if (data.business.status && data.business.status !== 'ACTIVE') {
+            router.push('/onboarding/plan');
+            return;
+          }
           setBusiness(data.business);
           setIsOpen(data.business.isOpenManually);
         }

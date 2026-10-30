@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * Edge-compatible JWT role decoder
+ * Edge-compatible JWT claims decoder
  * Parses the base64url payload without external crypto dependencies
  */
-function getJwtRole(token: string): string | null {
+function getJwtClaims(token: string): { role?: string; merchantStatus?: string } | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -17,7 +17,10 @@ function getJwtRole(token: string): string | null {
         .join('')
     );
     const parsed = JSON.parse(jsonPayload);
-    return parsed.role || null;
+    return {
+      role: parsed.role || null,
+      merchantStatus: parsed.merchantStatus || null,
+    };
   } catch {
     return null;
   }
@@ -26,7 +29,9 @@ function getJwtRole(token: string): string | null {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get('zyven_auth_token')?.value;
-  const role = token ? getJwtRole(token) : null;
+  const claims = token ? getJwtClaims(token) : null;
+  const role = claims?.role;
+  const merchantStatus = claims?.merchantStatus;
 
   // 1. Protect Super Admin routes (/admin/*)
   if (pathname.startsWith('/admin')) {
@@ -37,7 +42,6 @@ export function middleware(request: NextRequest) {
     }
 
     if (role !== 'SUPER_ADMIN') {
-      // Unauthorized role redirection
       if (role === 'MERCHANT') {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
@@ -57,9 +61,48 @@ export function middleware(request: NextRequest) {
     if (role === 'CUSTOMER') {
       return NextResponse.redirect(new URL('/account', request.url));
     }
+
+    // Subscription-Gated Activation Check for Merchants
+    if (role === 'MERCHANT' && merchantStatus && merchantStatus !== 'ACTIVE') {
+      if (merchantStatus === 'REGISTERED') {
+        return NextResponse.redirect(new URL('/onboarding/plan', request.url));
+      }
+      if (merchantStatus === 'PLAN_SELECTED' || merchantStatus === 'PAYMENT_PENDING') {
+        return NextResponse.redirect(new URL('/onboarding/checkout', request.url));
+      }
+      if (merchantStatus === 'PAYMENT_FAILED') {
+        return NextResponse.redirect(new URL('/onboarding/checkout?status=failed', request.url));
+      }
+      if (merchantStatus === 'SUSPENDED') {
+        return NextResponse.redirect(new URL('/onboarding/suspended', request.url));
+      }
+      return NextResponse.redirect(new URL('/onboarding/plan', request.url));
+    }
   }
 
-  // 3. Protect Customer Account routes (/account/*)
+  // 3. Protect Merchant Onboarding routes (/onboarding/*)
+  if (pathname.startsWith('/onboarding')) {
+    if (!token) {
+      const url = new URL('/login', request.url);
+      url.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(url);
+    }
+
+    if (role === 'CUSTOMER') {
+      return NextResponse.redirect(new URL('/account', request.url));
+    }
+
+    if (role === 'SUPER_ADMIN') {
+      return NextResponse.redirect(new URL('/admin', request.url));
+    }
+
+    // If merchant is already ACTIVE, send them straight to their dashboard
+    if (role === 'MERCHANT' && merchantStatus === 'ACTIVE') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
+  // 4. Protect Customer Account routes (/account/*)
   if (pathname.startsWith('/account')) {
     if (!token) {
       const url = new URL('/login', request.url);
@@ -72,5 +115,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/admin/:path*', '/account/:path*'],
+  matcher: ['/dashboard/:path*', '/admin/:path*', '/account/:path*', '/onboarding/:path*'],
 };

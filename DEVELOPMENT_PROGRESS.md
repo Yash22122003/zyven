@@ -12,7 +12,7 @@
 ZYVEN enables local independent businesses to launch digital storefronts (`zyven.me/[store-slug]`), manage real-time inventory, and accept store pickup orders (BOPIS) on a subscription SaaS business model (₹1/month introductory pricing with 0% sales commission).
 
 - **Production Build Status**: Compiled and optimized via `next build` (32 routes generated, 0 TypeScript errors).
-- **Automated Integration Tests**: 31/31 Passed (`tests/integration.ts`).
+- **Automated Integration Tests**: 47/47 Passed (`tests/integration.ts`).
 - **Database Persistence**: PostgreSQL 18 with Prisma ORM (15 relational tables with foreign keys and indexes).
 
 ---
@@ -147,6 +147,35 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
 - [x] **Strict Edge Middleware RBAC Enforcement (`src/middleware.ts`)**:
   - Edge-compatible zero-dependency JWT claims parsing (`getJwtRole`).
   - Enforces route-level RBAC: `/admin/*` restricted to `SUPER_ADMIN` (redirects unauthorized roles to `/dashboard` or `/account`); `/dashboard/*` blocks `CUSTOMER` users (redirects to `/account`); `/account/*` requires authentication.
+
+### Phase 9: Secure Login, Demo Credential Removal & Subscription-Gated Merchant Onboarding
+- [x] **Part A: Demo Credential Sanitization & Protected Admin Provisioning**:
+  - Completely removed static "QUICK TEST PROFILES" UI, demo email cards, and hardcoded `Zyven@2026` passwords from `/login` and `/register`. Zero credentials present in frontend code, JS bundles, API responses, or browser storage.
+  - Hardened demo login endpoint (`/api/auth/demo-login`): Returns HTTP 404 whenever `NODE_ENV === 'production'` or `ENABLE_DEMO_LOGIN !== 'true'`. Conditionally loads demo buttons on the frontend only when this server route returns 200 in development.
+  - Super Admin public registration permanently blocked on `/api/auth/register` with HTTP 403 Forbidden.
+  - Implemented secure Super Admin provisioning CLI (`scripts/provision-super-admin.ts` / `npm run admin:provision`) reading credentials from `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` with bcrypt hashing.
+  - Guarded `prisma/seed.ts` to abort execution when `NODE_ENV === 'production'`. Replaced hardcoded seed passwords with configurable `DEV_SEED_PASSWORD`.
+  - Re-verified post-login redirects: Customers -> `/account`, active Merchants -> `/dashboard`, Super Admins -> `/admin`.
+- [x] **Part B: Subscription-Gated Merchant Onboarding & State Machine**:
+  - Remediated registration vulnerability: Merchant registration now initializes stores in `MerchantStatus.REGISTERED` with `isActive: false` and no active subscription, redirecting directly to `/onboarding/plan`.
+  - Added full Prisma enum `MerchantStatus` (`REGISTERED`, `PLAN_SELECTED`, `PAYMENT_PENDING`, `PAYMENT_FAILED`, `ACTIVE`, `EXPIRED`, `SUSPENDED`) and Razorpay subscription tracking fields (`razorpayOrderId`, `razorpayPaymentId`, `razorpaySignature`).
+  - Built multi-step onboarding wizard:
+    - Step 1: `/onboarding/plan` — Plan selection with introductory ₹1 promotional offer, features checklist, and duration breakdown.
+    - Step 2: `/onboarding/checkout` — Order summary with GST tax breakdown, Razorpay SDK modal integration, dynamic UPI QR polling, and auto-activation.
+    - Status `/onboarding/suspended` — Account suspension notice with compliance support contact.
+  - Backend payment & webhook security:
+    - Dedicated onboarding order creation (`/api/merchant/onboarding/create-subscription-order`) and signature verification (`/api/merchant/onboarding/verify-subscription`).
+    - Webhook (`/api/payment/razorpay/webhook`) automatically detects subscription payments, verifies signature, executes idempotent database transaction, marks subscription `ACTIVE`, logs `AuditLog`, and activates the merchant.
+    - Failure recovery (`/api/merchant/onboarding/payment-failed`): Marks status as `PAYMENT_FAILED` without duplicating merchant accounts; provides immediate "Retry Payment" flow preserving the selected plan.
+  - Multi-tier route protection:
+    - Edge middleware intercepts inactive merchants attempting to reach `/dashboard/*` and immediately routes them to their exact onboarding step (`/onboarding/plan`, `/onboarding/checkout`, or `/onboarding/suspended`).
+    - Backend API guard (`requireMerchant` in `src/lib/auth.ts`) strictly verifies `business.status === ACTIVE` and throws `INACTIVE_MERCHANT:${status}`, returning HTTP 403 with `redirectUrl` for any mutation attempt.
+  - Super Admin governance console:
+    - Filter tabs on `/admin/businesses` (`ALL`, `ACTIVE`, `PENDING`, `FAILED`, `SUSPENDED`).
+    - Audit-logged manual activation creating proper `BusinessSubscription` and `SubscriptionPayment` records with `SUPER_ADMIN_MANUAL_OVERRIDE` method.
+- [x] **Part C: Verification & Testing**:
+  - Automated integration test suite expanded to 47 passing tests across 8 test suites.
+  - Live dev server verification verified: demo login 404s, public admin registration 403s, inactive merchant dashboard blocking, plan selection, payment failure recording, and duplicate-free retry recovery.
 
 ---
 

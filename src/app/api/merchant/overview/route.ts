@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { requireMerchant } from '@/lib/auth';
+import { requireMerchant, getOnboardingRedirectUrl } from '@/lib/auth';
 import { OrderStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +26,7 @@ export async function GET() {
           id: true,
           name: true,
           slug: true,
+          status: true,
           isOpenManually: true,
           isVerified: true,
           estimatedPrepTimeMinutes: true,
@@ -114,6 +115,17 @@ export async function GET() {
         : null,
     });
   } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('INACTIVE_MERCHANT:')) {
+      const status = err.message.split(':')[1] as any;
+      return NextResponse.json(
+        {
+          error: 'Merchant subscription is inactive. Please complete onboarding payment.',
+          status,
+          redirectUrl: getOnboardingRedirectUrl(status),
+        },
+        { status: 403 }
+      );
+    }
     console.error('Merchant overview error:', err);
     return NextResponse.json({ error: 'Unauthorized or failed to load overview' }, { status: 403 });
   }

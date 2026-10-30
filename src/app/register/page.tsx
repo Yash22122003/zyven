@@ -115,7 +115,7 @@ function RegisterForm() {
         throw new Error(data.error || 'Registration failed');
       }
 
-      router.push(redirectPath || '/dashboard');
+      router.push(data.redirectUrl || redirectPath || '/onboarding/plan');
       router.refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed';
@@ -202,7 +202,7 @@ function RegisterForm() {
                 label="Email Address"
                 type="email"
                 name="email"
-                placeholder="priya@example.com"
+                placeholder="name@example.com"
                 value={customerData.email}
                 onChange={handleCustomerChange}
                 required

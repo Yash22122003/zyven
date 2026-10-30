@@ -1,10 +1,15 @@
-import { PrismaClient, UserRole, StockDisplayMode, OrderStatus, PaymentMethod, PaymentStatus, MovementType, SubscriptionStatus } from '@prisma/client';
+import { PrismaClient, UserRole, StockDisplayMode, OrderStatus, PaymentMethod, PaymentStatus, MovementType, SubscriptionStatus, MerchantStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Starting ZYVEN database seed...');
+  if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_PROD_SEED) {
+    console.error('❌ Refusing to run dev database seed in production environment!');
+    process.exit(1);
+  }
+
+  console.log('🌱 Starting ZYVEN database seed (dev environment)...');
 
   // Clean existing records if any
   await prisma.orderStatusHistory.deleteMany();
@@ -23,7 +28,8 @@ async function main() {
   await prisma.category.deleteMany();
   await prisma.user.deleteMany();
 
-  const defaultPassword = await bcrypt.hash('Zyven@2026', 10);
+  const seedPassword = process.env.DEV_SEED_PASSWORD || 'ZyvenDev@2026';
+  const defaultPassword = await bcrypt.hash(seedPassword, 10);
 
   // 1. Create Super Admin
   const admin = await prisma.user.create({
@@ -121,6 +127,7 @@ async function main() {
       pincode: '201301',
       isVerified: true,
       isActive: true,
+      status: MerchantStatus.ACTIVE,
       isOpenManually: true,
       stockDisplayMode: StockDisplayMode.AVAILABILITY_STATUS,
       pickupInstructions: 'Pick up your prepared order at billing counter #2. Please show your order number on arrival.',
@@ -160,6 +167,7 @@ async function main() {
       pincode: '110048',
       isVerified: true,
       isActive: true,
+      status: MerchantStatus.ACTIVE,
       isOpenManually: true,
       stockDisplayMode: StockDisplayMode.EXACT_COUNT,
       pickupInstructions: 'Visit our flagship store reception. Try-ons available before taking items if required.',
@@ -199,6 +207,7 @@ async function main() {
       pincode: '560001',
       isVerified: true,
       isActive: true,
+      status: MerchantStatus.ACTIVE,
       isOpenManually: true,
       stockDisplayMode: StockDisplayMode.AVAILABILITY_STATUS,
       pickupInstructions: 'Collect directly at the accessories counter with your digital order confirmation.',
@@ -567,12 +576,8 @@ async function main() {
     console.log('✅ Seeded sample pickup orders (READY_FOR_PICKUP & PENDING)');
   }
 
-  console.log('🎉 ZYVEN database successfully seeded with production-grade test data!');
-  console.log('\nDefault Test Logins:');
-  console.log('• Super Admin: admin@zyven.me / Zyven@2026');
-  console.log('• Sharma Store: sharma@store.com / Zyven@2026 (Route: /sharma-store)');
-  console.log('• Fashion Hub: anita@fashionhub.com / Zyven@2026 (Route: /fashion-hub)');
-  console.log('• Mobile World: vikram@mobileworld.com / Zyven@2026 (Route: /mobile-world)');
+  console.log('🎉 ZYVEN database successfully seeded with initial test data!');
+  console.log('Seeded accounts are configured using DEV_SEED_PASSWORD (default: ZyvenDev@2026 for local dev only).');
 }
 
 main()

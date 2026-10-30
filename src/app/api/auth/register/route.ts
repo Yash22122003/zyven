@@ -4,11 +4,19 @@ import { hashPassword, signToken, setAuthCookie } from '@/lib/auth';
 import { registerSchema, customerRegisterSchema } from '@/lib/validations';
 import { slugify } from '@/lib/utils';
 import { isValidSlug } from '@/lib/reserved-slugs';
-import { UserRole, SubscriptionStatus } from '@prisma/client';
+import { UserRole, MerchantStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // 0. Super Admin accounts can NEVER be registered via public registration
+    if (body.role === 'SUPER_ADMIN' || body.role === UserRole.SUPER_ADMIN) {
+      return NextResponse.json(
+        { error: 'Public registration for Super Admin accounts is strictly forbidden.' },
+        { status: 403 }
+      );
+    }
 
     // 1. Handle Customer Registration (no store / business creation needed)
     if (body.role === 'CUSTOMER' || (!body.businessName && !body.categorySlug)) {
@@ -161,8 +169,9 @@ export async function POST(req: NextRequest) {
           city,
           state,
           pincode,
-          isVerified: true, // Default verified for pilot or toggleable
-          isActive: true,
+          isVerified: false,
+          isActive: false, // Inactive until subscription payment verified
+          status: MerchantStatus.REGISTERED,
           isOpenManually: true,
           estimatedPrepTimeMinutes: 20,
         },
@@ -181,22 +190,21 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Assign ₹1 introductory plan
-      if (introPlan) {
-        const now = new Date();
-        const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        await tx.businessSubscription.create({
-          data: {
-            businessId: newBusiness.id,
-            planId: introPlan.id,
-            status: SubscriptionStatus.ACTIVE,
-            startedAt: now,
-            currentPeriodStart: now,
-            currentPeriodEnd: periodEnd,
-            introMonthsConsumed: 1,
+      // Audit log entry for registration
+      await tx.auditLog.create({
+        data: {
+          actorId: newUser.id,
+          businessId: newBusiness.id,
+          action: 'MERCHANT_REGISTERED',
+          entityType: 'BUSINESS',
+          entityId: newBusiness.id,
+          metadataJson: {
+            status: MerchantStatus.REGISTERED,
+            businessName,
+            slug: generatedSlug,
           },
-        });
-      }
+        },
+      });
 
       return { user: newUser, business: newBusiness };
     });
@@ -207,22 +215,26 @@ export async function POST(req: NextRequest) {
       phone: result.user.phone,
       role: result.user.role,
       fullName: result.user.fullName,
+      merchantStatus: MerchantStatus.REGISTERED,
     });
 
     await setAuthCookie(token);
 
     return NextResponse.json({
       success: true,
-      message: 'Business registered successfully on ZYVEN',
+      message: 'Business registered successfully on ZYVEN. Please select a subscription plan to activate.',
+      redirectUrl: '/onboarding/plan',
       user: {
         id: result.user.id,
         email: result.user.email,
         fullName: result.user.fullName,
         role: result.user.role,
+        merchantStatus: MerchantStatus.REGISTERED,
         business: {
           id: result.business.id,
           name: result.business.name,
           slug: result.business.slug,
+          status: result.business.status,
         },
       },
     });

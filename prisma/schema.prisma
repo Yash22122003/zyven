@@ -18,6 +18,16 @@ enum StockDisplayMode {
   AVAILABILITY_STATUS
 }
 
+enum MerchantStatus {
+  REGISTERED
+  PLAN_SELECTED
+  PAYMENT_PENDING
+  PAYMENT_FAILED
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
 enum OrderStatus {
   PENDING
   ACCEPTED
@@ -56,6 +66,7 @@ enum SubscriptionStatus {
   GRACE_PERIOD
   EXPIRED
   CANCELLED
+  PENDING
 }
 
 enum SubscriptionPaymentStatus {
@@ -128,6 +139,8 @@ model Business {
   pincode                   String
   isVerified                Boolean             @default(false)
   isActive                  Boolean             @default(true)
+  status                    MerchantStatus      @default(REGISTERED)
+  selectedPlanId            String?
   isOpenManually            Boolean             @default(true)
   stockDisplayMode          StockDisplayMode    @default(AVAILABILITY_STATUS)
   pickupInstructions        String?             @db.Text
@@ -140,6 +153,7 @@ model Business {
 
   owner                     User                @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   category                  Category            @relation(fields: [categoryId], references: [id])
+  selectedPlan              SubscriptionPlan?   @relation("SelectedPlan", fields: [selectedPlanId], references: [id], onDelete: SetNull)
   operatingHours            OperatingHour[]
   products                  Product[]
   inventory                 Inventory[]
@@ -320,6 +334,7 @@ model SubscriptionPlan {
   updatedAt             DateTime               @updatedAt
 
   subscriptions         BusinessSubscription[]
+  selectedByBusinesses  Business[]             @relation("SelectedPlan")
 
   @@map("subscription_plans")
 }
@@ -334,6 +349,9 @@ model BusinessSubscription {
   currentPeriodEnd    DateTime
   introMonthsConsumed Int                  @default(0)
   gracePeriodEndsAt   DateTime?
+  razorpayOrderId     String?
+  razorpayPaymentId   String?
+  razorpaySignature   String?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -353,6 +371,9 @@ model SubscriptionPayment {
   currency             String                    @default("INR")
   status               SubscriptionPaymentStatus
   gatewayTransactionId String?
+  razorpayOrderId      String?
+  razorpayPaymentId    String?
+  razorpaySignature    String?
   paymentMethod        String
   createdAt            DateTime                  @default(now())
 

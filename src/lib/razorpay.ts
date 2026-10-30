@@ -1,7 +1,7 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { prisma } from './db';
-import { OrderStatus, PaymentStatus, NotificationType } from '@prisma/client';
+import { OrderStatus, PaymentStatus, NotificationType, MerchantStatus, SubscriptionStatus, SubscriptionPaymentStatus } from '@prisma/client';
 
 export interface CreateOrderParams {
   amountInPaise: number;
@@ -310,5 +310,177 @@ export async function markOrderAsPaidAndCompleted({
   });
 
   return { order: updatedOrder, alreadyPaid: false };
+}
+
+/**
+ * Idempotent merchant subscription activation helper
+ * Ensures duplicate callbacks, webhooks, or retries do not duplicate status changes
+ */
+export async function activateMerchantSubscription({
+  businessId,
+  razorpayOrderId,
+  razorpayPaymentId,
+  razorpaySignature,
+  source = 'CALLBACK',
+}: {
+  businessId?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId: string;
+  razorpaySignature?: string;
+  source?: 'WEBHOOK' | 'CALLBACK' | 'SUPER_ADMIN';
+}) {
+  // Look up subscription payment by razorpayOrderId or businessId
+  const payment = await prisma.subscriptionPayment.findFirst({
+    where: {
+      OR: [
+        ...(razorpayOrderId ? [{ razorpayOrderId }] : []),
+        ...(businessId ? [{ businessId }] : []),
+      ],
+    },
+    include: {
+      business: {
+        include: {
+          selectedPlan: true,
+          subscription: true,
+        },
+      },
+      subscription: {
+        include: { plan: true },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const targetBusinessId = businessId || payment?.businessId;
+  if (!targetBusinessId) {
+    throw new Error('Merchant business not found for subscription payment');
+  }
+
+  const business = await prisma.business.findUnique({
+    where: { id: targetBusinessId },
+    include: {
+      selectedPlan: true,
+      subscription: {
+        include: { plan: true },
+      },
+    },
+  });
+
+  if (!business) {
+    throw new Error('Business not found');
+  }
+
+  // Idempotency check: If business is already ACTIVE and subscription is ACTIVE, return early
+  if (business.status === MerchantStatus.ACTIVE && business.subscription?.status === SubscriptionStatus.ACTIVE) {
+    console.log('[Razorpay Backend] Subscription idempotency check: Business already ACTIVE, skipping:', {
+      businessId: business.id,
+      paymentId: razorpayPaymentId,
+    });
+    return { business, alreadyActive: true };
+  }
+
+  // Determine plan: selectedPlan -> existing subscription plan -> default intro plan
+  const plan =
+    business.selectedPlan ||
+    business.subscription?.plan ||
+    (await prisma.subscriptionPlan.findFirst({ where: { isActive: true }, orderBy: { priceInr: 'asc' } }));
+
+  if (!plan) {
+    throw new Error('No subscription plan found to activate');
+  }
+
+  const now = new Date();
+  const intervalMonths = plan.billingIntervalMonths || 1;
+  const periodEnd = new Date(now.getTime() + intervalMonths * 30 * 24 * 60 * 60 * 1000);
+
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Upsert or update BusinessSubscription
+    const sub = await tx.businessSubscription.upsert({
+      where: { businessId: business.id },
+      create: {
+        businessId: business.id,
+        planId: plan.id,
+        status: SubscriptionStatus.ACTIVE,
+        startedAt: now,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        introMonthsConsumed: plan.isIntroductory ? 1 : 0,
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+      },
+      update: {
+        planId: plan.id,
+        status: SubscriptionStatus.ACTIVE,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        introMonthsConsumed: plan.isIntroductory ? { increment: 1 } : undefined,
+        razorpayOrderId: razorpayOrderId || undefined,
+        razorpayPaymentId,
+        razorpaySignature,
+      },
+    });
+
+    // 2. Update or create SubscriptionPayment
+    if (payment) {
+      await tx.subscriptionPayment.update({
+        where: { id: payment.id },
+        data: {
+          status: SubscriptionPaymentStatus.SUCCESS,
+          gatewayTransactionId: razorpayPaymentId,
+          razorpayPaymentId,
+          razorpaySignature,
+        },
+      });
+    } else {
+      await tx.subscriptionPayment.create({
+        data: {
+          subscriptionId: sub.id,
+          businessId: business.id,
+          amount: plan.priceInr,
+          currency: 'INR',
+          status: SubscriptionPaymentStatus.SUCCESS,
+          gatewayTransactionId: razorpayPaymentId,
+          razorpayOrderId,
+          razorpayPaymentId,
+          razorpaySignature,
+          paymentMethod: 'RAZORPAY_UPI',
+        },
+      });
+    }
+
+    // 3. Activate Business
+    const updatedBiz = await tx.business.update({
+      where: { id: business.id },
+      data: {
+        status: MerchantStatus.ACTIVE,
+        isActive: true,
+      },
+    });
+
+    // 4. Audit Log
+    await tx.auditLog.create({
+      data: {
+        actorId: business.ownerId,
+        businessId: business.id,
+        action: 'MERCHANT_SUBSCRIPTION_ACTIVATED',
+        entityType: 'BUSINESS',
+        entityId: business.id,
+        metadataJson: {
+          source,
+          planId: plan.id,
+          planName: plan.name,
+          priceInr: Number(plan.priceInr),
+          razorpayOrderId,
+          razorpayPaymentId,
+          currentPeriodEnd: periodEnd,
+        },
+      },
+    });
+
+    return updatedBiz;
+  });
+
+  return { business: result, alreadyActive: false };
 }
 

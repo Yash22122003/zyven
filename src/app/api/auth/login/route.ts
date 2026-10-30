@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { comparePassword, signToken, setAuthCookie } from '@/lib/auth';
+import { comparePassword, signToken, setAuthCookie, getOnboardingRedirectUrl } from '@/lib/auth';
 import { loginSchema } from '@/lib/validations';
+import { MerchantStatus } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
             slug: true,
             isVerified: true,
             isActive: true,
+            status: true,
           },
         },
       },
@@ -45,22 +47,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Your account has been deactivated. Contact support.' }, { status: 403 });
     }
 
+    const primaryBusiness = user.businesses[0] || null;
+    const merchantStatus = user.role === 'MERCHANT' && primaryBusiness ? primaryBusiness.status : null;
+
     const token = signToken({
       userId: user.id,
       email: user.email,
       phone: user.phone,
       role: user.role,
       fullName: user.fullName,
+      merchantStatus,
     });
 
     await setAuthCookie(token);
 
-    const defaultRedirect =
-      user.role === 'SUPER_ADMIN'
-        ? '/admin'
-        : user.role === 'CUSTOMER'
-        ? '/account'
-        : '/dashboard';
+    let defaultRedirect = '/dashboard';
+    if (user.role === 'SUPER_ADMIN') {
+      defaultRedirect = '/admin';
+    } else if (user.role === 'CUSTOMER') {
+      defaultRedirect = '/account';
+    } else if (user.role === 'MERCHANT') {
+      if (!primaryBusiness || primaryBusiness.status !== MerchantStatus.ACTIVE) {
+        defaultRedirect = getOnboardingRedirectUrl(primaryBusiness?.status || MerchantStatus.REGISTERED);
+      } else {
+        defaultRedirect = '/dashboard';
+      }
+    }
 
     return NextResponse.json({
       success: true,
