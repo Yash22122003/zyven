@@ -30,8 +30,9 @@ enum OrderStatus {
 }
 
 enum PaymentMethod {
-  PAY_AT_STORE
+  RAZORPAY_UPI
   UPI_ONLINE
+  PAY_AT_STORE
 }
 
 enum PaymentStatus {
@@ -247,8 +248,11 @@ model Order {
   subtotal             Decimal              @db.Decimal(12, 2)
   taxAmount            Decimal              @default(0.00) @db.Decimal(12, 2)
   totalAmount          Decimal              @db.Decimal(12, 2)
-  paymentMethod        PaymentMethod        @default(PAY_AT_STORE)
+  paymentMethod        PaymentMethod        @default(RAZORPAY_UPI)
   paymentStatus        PaymentStatus        @default(PENDING)
+  razorpayOrderId      String?
+  razorpayPaymentId    String?
+  razorpaySignature    String?
   upiTransactionRef    String?
   pickupNotes          String?              @db.Text
   estimatedPickupTime  DateTime?
@@ -265,6 +269,7 @@ model Order {
   @@index([businessId])
   @@index([customerPhone])
   @@index([orderNumber])
+  @@index([razorpayOrderId])
   @@map("orders")
 }
 

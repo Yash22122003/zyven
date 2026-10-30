@@ -66,7 +66,7 @@ export const checkoutSchema = z.object({
   customerName: z.string().min(2, 'Full name is required'),
   customerPhone: z.string().min(10, 'Valid 10-digit phone number is required'),
   customerEmail: z.string().email().optional().or(z.literal('')),
-  paymentMethod: z.enum(['PAY_AT_STORE', 'UPI_ONLINE']).default('PAY_AT_STORE'),
+  paymentMethod: z.enum(['RAZORPAY_UPI', 'PAY_AT_STORE', 'UPI_ONLINE']).default('RAZORPAY_UPI'),
   upiTransactionRef: z.string().optional(),
   pickupNotes: z.string().optional(),
   items: z.array(

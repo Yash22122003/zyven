@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 import { useParams } from 'next/navigation';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { OrderStatusPill } from '@/components/ui/status-pill';
-import { UpiPaymentCard } from '@/components/shared/UpiPaymentCard';
 import {
   MapPin,
   Phone,
@@ -21,8 +21,17 @@ import {
   Copy,
   Check,
   QrCode,
+  ShieldCheck,
+  CheckCircle2,
+  Lock,
 } from 'lucide-react';
 import { OrderStatus } from '@prisma/client';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 export default function OrderTrackingPage() {
   const params = useParams();
@@ -34,6 +43,7 @@ export default function OrderTrackingPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const fetchOrder = async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -54,10 +64,12 @@ export default function OrderTrackingPage() {
 
   useEffect(() => {
     fetchOrder();
-    // Poll every 10 seconds for real-time order status
+
+    // Auto-polling: poll every 3 seconds if pending to automatically detect cross-device QR payments
     const interval = setInterval(() => {
       fetchOrder();
-    }, 10000);
+    }, 3000);
+
     return () => clearInterval(interval);
   }, [orderNumber]);
 
@@ -67,36 +79,104 @@ export default function OrderTrackingPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleUpiRefSubmitted = async (ref: string) => {
-    const res = await fetch(`/api/orders/${orderNumber}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upiTransactionRef: ref }),
-    });
-
-    if (!res.ok) {
-      throw new Error('Failed to submit UPI reference');
+  const handleRetryPayment = () => {
+    if (typeof window === 'undefined' || !window.Razorpay) {
+      alert('Razorpay payment gateway is still loading. Please retry in a few seconds.');
+      return;
     }
 
-    await fetchOrder();
+    if (!data?.order) return;
+
+    setIsRetrying(true);
+    const order = data.order;
+    const business = data.business;
+
+    const options = {
+      key: order.razorpayKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
+      amount: Math.round(order.totalAmount * 100),
+      currency: 'INR',
+      name: business.name || 'ZYVEN Store',
+      description: `Order #${order.orderNumber}`,
+      order_id: order.razorpayOrderId,
+      prefill: {
+        name: order.customerName,
+        email: order.customerEmail || undefined,
+        contact: order.customerPhone,
+      },
+      notes: {
+        orderNumber: order.orderNumber,
+      },
+      theme: {
+        color: '#09090b',
+      },
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: 'Pay with UPI / QR',
+              instruments: [
+                {
+                  method: 'upi',
+                },
+              ],
+            },
+          },
+          sequence: ['block.upi'],
+          preferences: {
+            show_default_blocks: true,
+          },
+        },
+      },
+      handler: async function (response: any) {
+        try {
+          await fetch('/api/payment/razorpay/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderNumber: order.orderNumber,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
+          fetchOrder();
+        } catch {
+          fetchOrder();
+        } finally {
+          setIsRetrying(false);
+        }
+      },
+      modal: {
+        ondismiss: function () {
+          setIsRetrying(false);
+        },
+      },
+    };
+
+    const rzp = new window.Razorpay(options);
+    rzp.open();
   };
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 flex-1 w-full space-y-5">
-        <div className="h-10 w-44 bg-zinc-100 rounded animate-pulse" />
-        <div className="h-60 bg-zinc-100 rounded-xl animate-pulse" />
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 flex-1 w-full space-y-4">
+        <div className="h-6 w-32 bg-zinc-200 animate-pulse rounded" />
+        <div className="h-44 rounded-2xl bg-zinc-100 animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-40 rounded-xl bg-zinc-100 animate-pulse" />
+          <div className="h-40 rounded-xl bg-zinc-100 animate-pulse" />
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="max-w-md mx-auto text-center py-20 px-4 flex-1">
-        <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
-        <h1 className="text-xl font-bold text-zinc-950">Order Not Found</h1>
+      <div className="max-w-md mx-auto text-center py-20 px-4">
+        <ShoppingBag className="w-12 h-12 text-zinc-300 mx-auto mb-3" />
+        <h1 className="text-xl font-bold text-zinc-950">Order Not Located</h1>
         <p className="text-xs text-zinc-600 mt-1">
-          {error || 'The requested order reference could not be found.'}
+          {error || 'We could not find an order matching that reference number.'}
         </p>
         <Link href={`/${slug}`} className="mt-5 inline-block">
           <Button variant="outline" size="sm">
@@ -126,6 +206,9 @@ export default function OrderTrackingPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-3.5 sm:px-6 py-6 sm:py-10 flex-1 w-full pb-20">
+      {/* Razorpay Official Checkout Script */}
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+
       {/* Top Bar Navigation & Refresh */}
       <div className="flex items-center justify-between mb-5">
         <Link
@@ -262,25 +345,78 @@ export default function OrderTrackingPage() {
           {order.status === OrderStatus.COLLECTED && (
             <p className="leading-relaxed">
               <span className="font-semibold text-zinc-950">Collected & Fulfilled: </span>
-              Order was collected in person and payment was completed at the counter. Thank you!
+              Order was collected in person and payment was verified. Thank you!
             </p>
           )}
         </div>
       </div>
 
-      {/* UPI QR Payment Section (If store has UPI enabled and order not collected/paid) */}
-      {business.enableUpiQr && business.upiId && order.status !== OrderStatus.REJECTED && order.status !== OrderStatus.CANCELLED && (
-        <div className="mb-5">
-          <UpiPaymentCard
-            upiId={business.upiId}
-            payeeName={business.upiName || business.name}
-            amount={Number(order.totalAmount)}
-            orderNumber={order.orderNumber}
-            upiTransactionRef={order.upiTransactionRef}
-            onReferenceSubmitted={handleUpiRefSubmitted}
-            variant="customer"
-          />
-        </div>
+      {/* Razorpay Payment Verification Banner (Verified Success or Retry Option) */}
+      {order.paymentStatus === 'PAID' ? (
+        <Card className="p-4 sm:p-5 mb-5 bg-emerald-50/80 border-emerald-200 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-emerald-950">Payment Completed via Razorpay UPI</h3>
+                  <Badge variant="success" size="sm" className="font-semibold">Paid</Badge>
+                </div>
+                <p className="text-xs text-emerald-800 mt-0.5">
+                  Transaction verified and credited directly to merchant account.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-900 mt-1.5">
+                  {order.razorpayPaymentId && (
+                    <span className="bg-white/80 px-2 py-0.5 rounded border border-emerald-300">
+                      Payment ID: {order.razorpayPaymentId}
+                    </span>
+                  )}
+                  {order.razorpayOrderId && (
+                    <span className="bg-white/80 px-2 py-0.5 rounded border border-emerald-300">
+                      Order ID: {order.razorpayOrderId}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-right sm:self-center shrink-0">
+              <div className="text-[10px] text-emerald-700 font-semibold uppercase tracking-wider">Amount Paid</div>
+              <div className="font-extrabold text-base text-emerald-950 font-mono">
+                {formatCurrency(order.totalAmount)}
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : !isTerminalFailure && (
+        <Card className="p-4 sm:p-5 mb-5 bg-zinc-950 text-white shadow-md">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <h3 className="font-bold text-sm">Payment Pending via UPI</h3>
+                <Badge variant="neutral" size="sm" className="bg-zinc-800 text-zinc-200 border-zinc-700">
+                  Action Required
+                </Badge>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Items are reserved. Complete payment using Google Pay, PhonePe, Paytm, or scan QR.
+              </p>
+            </div>
+
+            <Button
+              size="md"
+              onClick={handleRetryPayment}
+              isLoading={isRetrying}
+              className="bg-white text-zinc-950 hover:bg-zinc-100 font-semibold gap-2 shrink-0 shadow-sm"
+            >
+              <Lock className="w-4 h-4" />
+              <span>Pay {formatCurrency(order.totalAmount)} with UPI</span>
+            </Button>
+          </div>
+        </Card>
       )}
 
       {/* Two Columns: Pickup Location & Order Receipt */}
@@ -308,12 +444,14 @@ export default function OrderTrackingPage() {
 
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-zinc-400 shrink-0" />
-              <span>Contact: {business.phone}</span>
+              <a href={`tel:${business.phone}`} className="hover:text-zinc-950 font-medium">
+                {business.phone}
+              </a>
             </div>
 
             {business.pickupInstructions && (
-              <div className="mt-2.5 p-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-zinc-700 text-[11px]">
-                <strong className="text-zinc-900">Instructions: </strong>
+              <div className="mt-2 p-2.5 rounded-lg bg-zinc-50 border border-zinc-200 text-[11px] text-zinc-700">
+                <strong>Counter Note: </strong>
                 <span>{business.pickupInstructions}</span>
               </div>
             )}
@@ -323,19 +461,16 @@ export default function OrderTrackingPage() {
         {/* Order Receipt */}
         <Card className="p-4 sm:p-5">
           <h2 className="font-bold text-xs sm:text-sm text-zinc-950 mb-3 pb-2 border-b border-zinc-100 flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <ShoppingBag className="w-4 h-4 text-zinc-500" />
-              <span>Items Summary</span>
-            </span>
-            <span className="text-xs text-zinc-600 font-normal">{items.length} item(s)</span>
+            <span>Order Receipt</span>
+            <span className="text-[11px] font-mono text-zinc-500">{items.length} items</span>
           </h2>
 
-          <div className="space-y-2 text-xs">
+          <div className="space-y-2">
             {items.map((item: any) => (
-              <div key={item.id} className="flex items-center justify-between py-1">
+              <div key={item.id} className="flex items-center justify-between text-xs py-1">
                 <div className="truncate pr-2">
-                  <div className="font-semibold text-zinc-900 truncate">{item.productName}</div>
-                  <div className="text-[11px] text-zinc-600 font-mono">
+                  <div className="font-medium text-zinc-900 truncate">{item.productName}</div>
+                  <div className="text-[10px] text-zinc-500 font-mono">
                     {item.quantity} × {formatCurrency(item.unitPrice)}
                   </div>
                 </div>
@@ -361,9 +496,9 @@ export default function OrderTrackingPage() {
             </div>
 
             <div className="mt-3 pt-2 text-[11px] text-zinc-600 flex items-center justify-between">
-              <span>Payment:</span>
+              <span>Payment Gateway:</span>
               <span className="font-medium text-zinc-900">
-                {order.paymentMethod === 'UPI_ONLINE' ? 'UPI QR Code' : 'Pay at Store'}
+                Razorpay UPI
                 {' • '}
                 <strong className={order.paymentStatus === 'PAID' ? 'text-emerald-700' : 'text-amber-700'}>
                   {order.paymentStatus === 'PAID' ? 'PAID' : 'Pending Payment'}
@@ -378,18 +513,13 @@ export default function OrderTrackingPage() {
       {timeline && timeline.length > 0 && (
         <div className="mt-5">
           <h3 className="text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2">
-            Order Activity History
+            Audit Activity Log
           </h3>
-          <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2.5 text-xs">
+          <div className="bg-white rounded-xl border border-zinc-200 p-3 space-y-2 text-xs">
             {timeline.map((entry: any) => (
-              <div key={entry.id} className="flex items-start gap-2.5 text-zinc-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 mt-1.5 shrink-0" />
-                <div className="flex-1">
-                  <div className="text-zinc-900 font-medium text-[11px] sm:text-xs">{entry.note}</div>
-                  <div className="text-[10px] text-zinc-600 font-mono mt-0.5">
-                    {formatDate(entry.createdAt)}
-                  </div>
-                </div>
+              <div key={entry.id} className="flex items-start gap-2 text-zinc-600 text-[11px] pb-1.5 border-b border-zinc-100 last:border-0">
+                <span className="font-mono text-zinc-400 shrink-0">{formatDate(entry.createdAt)}</span>
+                <span className="text-zinc-800">{entry.note}</span>
               </div>
             ))}
           </div>

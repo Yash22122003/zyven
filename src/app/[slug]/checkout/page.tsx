@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 import { useParams, useRouter } from 'next/navigation';
 import { useCart } from '@/hooks/useCart';
 import { formatCurrency } from '@/lib/utils';
@@ -10,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  Store,
   MapPin,
   ArrowLeft,
   ShoppingBag,
@@ -19,8 +19,15 @@ import {
   ShieldCheck,
   CheckCircle2,
   Smartphone,
-  ChevronRight,
+  RefreshCw,
+  Lock,
 } from 'lucide-react';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 export default function CheckoutPage() {
   const params = useParams();
@@ -32,11 +39,17 @@ export default function CheckoutPage() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'UPI_ONLINE' | 'PAY_AT_STORE'>('UPI_ONLINE');
   const [pickupNotes, setPickupNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [storeInfo, setStoreInfo] = useState<any>(null);
+
+  // Razorpay state
+  const [razorpayReady, setRazorpayReady] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<any>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const rzpInstanceRef = useRef<any>(null);
 
   // Pre-fill customer details if logged in
   useEffect(() => {
@@ -59,14 +72,19 @@ export default function CheckoutPage() {
       .then((data) => {
         if (data && data.store) {
           setStoreInfo(data.store);
-          // If store does not have UPI enabled, fallback to cash
-          if (!data.store.enableUpiQr) {
-            setPaymentMethod('PAY_AT_STORE');
-          }
         }
       })
       .catch(() => {});
   }, [slug]);
+
+  // Clean up polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
 
   if (!isLoaded) {
     return (
@@ -94,6 +112,148 @@ export default function CheckoutPage() {
     );
   }
 
+  // Starts polling payment status (detects when customer scans QR from another phone)
+  const startCrossDevicePolling = (orderNumber: string, trackingUrl: string) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/payment/status?orderNumber=${encodeURIComponent(orderNumber)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.paymentStatus === 'PAID') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+            }
+            if (rzpInstanceRef.current) {
+              try {
+                rzpInstanceRef.current.close();
+              } catch {}
+            }
+            clearCart();
+            router.push(`${trackingUrl}?paid=true`);
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 2000);
+  };
+
+  // Verifies payment signature on direct client callback
+  const handlePaymentSuccess = async (
+    orderNumber: string,
+    response: {
+      razorpay_order_id: string;
+      razorpay_payment_id: string;
+      razorpay_signature: string;
+    },
+    trackingUrl: string
+  ) => {
+    setIsVerifying(true);
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    try {
+      const verifyRes = await fetch('/api/payment/razorpay/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber,
+          razorpay_order_id: response.razorpay_order_id,
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature,
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verifyData.error || 'Signature verification failed');
+      }
+
+      clearCart();
+      router.push(`${trackingUrl}?paid=true`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Payment verification failed';
+      setError(msg);
+      setIsVerifying(false);
+    }
+  };
+
+  // Launch Razorpay Checkout Modal
+  const launchRazorpayModal = (orderData: any) => {
+    if (typeof window === 'undefined' || !window.Razorpay) {
+      setError('Payment gateway is loading. Please try again in a moment.');
+      return;
+    }
+
+    const { razorpay, orderNumber, trackingUrl } = orderData;
+
+    const options = {
+      key: razorpay.keyId,
+      amount: razorpay.amount,
+      currency: razorpay.currency || 'INR',
+      name: razorpay.name || storeInfo?.name || 'ZYVEN Store',
+      description: razorpay.description || `Order #${orderNumber}`,
+      order_id: razorpay.orderId,
+      prefill: {
+        name: customerName.trim(),
+        email: customerEmail.trim() || undefined,
+        contact: customerPhone.trim(),
+      },
+      notes: {
+        orderNumber,
+      },
+      theme: {
+        color: '#09090b',
+      },
+      config: {
+        display: {
+          blocks: {
+            upi: {
+              name: 'Pay with UPI / QR',
+              instruments: [
+                {
+                  method: 'upi',
+                },
+              ],
+            },
+          },
+          sequence: ['block.upi'],
+          preferences: {
+            show_default_blocks: true,
+          },
+        },
+      },
+      handler: async function (response: any) {
+        await handlePaymentSuccess(orderNumber, response, trackingUrl);
+      },
+      modal: {
+        ondismiss: function () {
+          setPendingOrder(orderData);
+        },
+      },
+    };
+
+    const rzp = new window.Razorpay(options);
+    rzpInstanceRef.current = rzp;
+
+    // Handle payment failures from within Razorpay
+    rzp.on('payment.failed', function (resp: any) {
+      const reason = resp.error?.description || 'Payment failed';
+      setError(`Payment could not be completed: ${reason}`);
+      setPendingOrder(orderData);
+    });
+
+    rzp.open();
+
+    // Start cross-device QR scanning detection
+    startCrossDevicePolling(orderNumber, trackingUrl);
+  };
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -105,7 +265,7 @@ export default function CheckoutPage() {
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         customerEmail: customerEmail.trim() || undefined,
-        paymentMethod,
+        paymentMethod: 'RAZORPAY_UPI',
         pickupNotes: pickupNotes.trim() || undefined,
         items: cart.items.map((i) => ({
           productId: i.productId,
@@ -124,9 +284,8 @@ export default function CheckoutPage() {
         throw new Error(data.error || 'Failed to place pickup order');
       }
 
-      // Order placed! Clear cart and redirect to live order tracker
-      clearCart();
-      router.push(data.trackingUrl || `/${slug}/orders/${data.orderNumber}`);
+      setPendingOrder(data);
+      launchRazorpayModal(data);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Checkout failed';
       setError(message);
@@ -137,6 +296,12 @@ export default function CheckoutPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-3.5 sm:px-6 py-6 sm:py-10 flex-1 w-full pb-28 md:pb-12">
+      {/* Razorpay Checkout Official Script */}
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        onLoad={() => setRazorpayReady(true)}
+      />
+
       {/* Back button */}
       <Link
         href={`/${slug}`}
@@ -151,11 +316,11 @@ export default function CheckoutPage() {
           Store Pickup Checkout
         </h1>
         <p className="text-xs text-zinc-600 mt-0.5">
-          Order online and collect physically from the shop counter.
+          Order online with instant UPI payment and collect physically from the shop counter.
         </p>
       </div>
 
-      {/* Prominent BOPIS Store Pickup Notice */}
+      {/* BOPIS Store Pickup Notice */}
       <div className="mb-6 p-3.5 sm:p-4 rounded-xl bg-amber-50/80 border border-amber-200/90 text-amber-900 text-xs flex items-start gap-2.5 sm:gap-3">
         <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
         <div className="space-y-0.5 leading-relaxed">
@@ -168,6 +333,41 @@ export default function CheckoutPage() {
           </p>
         </div>
       </div>
+
+      {/* Verifying Payment Banner */}
+      {isVerifying && (
+        <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex items-center gap-3">
+          <RefreshCw className="w-4 h-4 text-blue-700 animate-spin" />
+          <div>
+            <div className="font-bold text-sm">Verifying UPI Payment...</div>
+            <p className="text-[11px] text-blue-700 mt-0.5">
+              Confirming cryptographic transaction signature with Razorpay. Please do not close this window.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Pending / Retry Payment State */}
+      {pendingOrder && !isVerifying && (
+        <div className="mb-6 p-4 rounded-xl bg-zinc-950 text-white text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+          <div className="space-y-1">
+            <div className="font-bold text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span>Payment Pending for #{pendingOrder.orderNumber}</span>
+            </div>
+            <p className="text-zinc-400 text-[11px]">
+              Stock is reserved. Scan QR code or tap to complete payment with any UPI app.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => launchRazorpayModal(pendingOrder)}
+            className="bg-white text-zinc-950 hover:bg-zinc-100 font-semibold text-xs shrink-0"
+          >
+            Retry UPI Payment ({formatCurrency(subtotal)})
+          </Button>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
@@ -205,7 +405,7 @@ export default function CheckoutPage() {
                 />
 
                 <Input
-                  label="Email (Optional digital receipt)"
+                  label="Email (For digital receipt)"
                   placeholder="you@example.com"
                   type="email"
                   value={customerEmail}
@@ -227,69 +427,56 @@ export default function CheckoutPage() {
               </div>
             </Card>
 
-            {/* 2. Payment Method Selector */}
+            {/* 2. Razorpay UPI Payment Card (Only Payment Method) */}
             <Card className="p-4 sm:p-6 space-y-3">
               <h2 className="font-bold text-sm text-zinc-950 pb-2 border-b border-zinc-100 flex items-center justify-between">
-                <span>2. Select Payment Method</span>
-                <Badge variant="success" size="sm">0% Fee</Badge>
+                <span>2. Payment Method</span>
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-[11px] text-emerald-700 font-semibold">Razorpay Verified</span>
+                </div>
               </h2>
 
-              <div className="space-y-2.5 pt-1">
-                {/* Option 1: UPI QR Payment */}
-                <label
-                  onClick={() => setPaymentMethod('UPI_ONLINE')}
-                  className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                    paymentMethod === 'UPI_ONLINE'
-                      ? 'border-zinc-950 bg-zinc-50/80 ring-1 ring-zinc-950 shadow-xs'
-                      : 'border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  <div className="w-9 h-9 rounded-lg bg-zinc-950 text-white flex items-center justify-center shrink-0 mt-0.5">
-                    <QrCode className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-zinc-950">
-                        Instant UPI QR Code
-                      </span>
-                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        Recommended
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">
-                      Scan or tap to pay via Google Pay, PhonePe, Paytm, or CRED.
-                    </p>
-                    {storeInfo?.upiId && (
-                      <div className="mt-2 text-[10px] font-mono text-zinc-600 bg-white px-2 py-0.5 rounded border border-zinc-200 inline-block">
-                        Store UPI: {storeInfo.upiId}
+              <div className="pt-1">
+                <div className="p-4 rounded-xl border border-zinc-950 bg-zinc-50/80 ring-1 ring-zinc-950 shadow-xs space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-950 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <QrCode className="w-5 h-5" />
                       </div>
-                    )}
-                  </div>
-                </label>
-
-                {/* Option 2: Pay at Store */}
-                <label
-                  onClick={() => setPaymentMethod('PAY_AT_STORE')}
-                  className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
-                    paymentMethod === 'PAY_AT_STORE'
-                      ? 'border-zinc-950 bg-zinc-50/80 ring-1 ring-zinc-950 shadow-xs'
-                      : 'border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  <div className="w-9 h-9 rounded-lg bg-zinc-100 text-zinc-700 flex items-center justify-center shrink-0 mt-0.5">
-                    <Store className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-zinc-950">
-                        Cash on Pickup (Pay at Counter)
-                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-zinc-950">
+                            Instant UPI & Dynamic QR Code
+                          </span>
+                          <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Sole Gateway
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-600 mt-0.5">
+                          Pay directly with any UPI App or scan on-screen QR from another phone.
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">
-                      Hand cash directly to the cashier when collecting your prepared bag.
-                    </p>
                   </div>
-                </label>
+
+                  {/* Badges for Supported UPI Providers */}
+                  <div className="pt-2 border-t border-zinc-200/80 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 font-medium">Google Pay</span>
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 font-medium">PhonePe</span>
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 font-medium">Paytm</span>
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 font-medium">CRED</span>
+                    <span className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 font-medium">Any UPI App</span>
+                  </div>
+
+                  {/* Cross-device scanning assurance */}
+                  <div className="p-2.5 rounded-lg bg-white border border-zinc-200/80 text-[11px] text-zinc-600 flex items-start gap-2">
+                    <Smartphone className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Cross-device scanning supported:</strong> If you scan the QR code from another phone, this checkout screen will automatically detect payment success via webhook and proceed without manual refresh.
+                    </span>
+                  </div>
+                </div>
               </div>
             </Card>
           </div>
@@ -362,37 +549,41 @@ export default function CheckoutPage() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="w-full font-semibold shadow-sm h-11"
-                  isLoading={loading}
+                  className="w-full font-semibold shadow-sm h-11 gap-2"
+                  isLoading={loading || isVerifying}
                 >
-                  Place Pickup Order ({formatCurrency(subtotal)})
+                  <Lock className="w-4 h-4" />
+                  <span>Pay {formatCurrency(subtotal)} via UPI</span>
                 </Button>
-                <p className="text-[10px] text-zinc-600 text-center mt-2">
-                  Atomic stock reservation active • Guaranteed inventory
+                <p className="text-[10px] text-zinc-500 text-center mt-2 flex items-center justify-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  <span>Atomic stock reservation • Razorpay 256-bit encrypted</span>
                 </p>
               </div>
             </Card>
           </div>
         </div>
 
-        {/* Mobile Fixed Sticky Bottom Action Bar */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200 px-4 py-3 shadow-2xl flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[10px] text-zinc-600">Total Due on Pickup</div>
-            <div className="text-base font-extrabold text-zinc-950 font-mono">
-              {formatCurrency(subtotal)}
+        {/* Mobile Sticky Bottom Checkout Bar */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200 shadow-xl p-3 md:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] text-zinc-500">Payable Total</div>
+              <div className="font-extrabold text-base text-zinc-950 font-mono">
+                {formatCurrency(subtotal)}
+              </div>
             </div>
-          </div>
 
-          <Button
-            type="submit"
-            size="md"
-            className="flex-1 max-w-[200px] font-semibold h-10 shadow-sm"
-            isLoading={loading}
-          >
-            <span>Confirm Order</span>
-            <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
+            <Button
+              type="submit"
+              size="md"
+              className="gap-2 font-semibold shadow-sm h-10 px-5"
+              isLoading={loading || isVerifying}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Pay via UPI</span>
+            </Button>
+          </div>
         </div>
       </form>
     </div>

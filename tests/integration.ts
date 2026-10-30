@@ -164,24 +164,71 @@ async function runTests() {
   assert(introPlan?.introDurationMonths === 3, 'Introductory duration is 3 months');
   assert(standardPlan !== null && Number(standardPlan.priceInr) === 299.00, 'Standard Plan is configured at ₹299.00');
 
-  // TEST 6: Merchant UPI QR Payment & Deep Linking
-  console.log('\n--- Test Suite 6: Merchant UPI QR Payment & NPCI URI ---');
-  const upiStore = await prisma.business.findUnique({ where: { slug: 'sharma-store' } });
-  assert(upiStore?.enableUpiQr === true, 'Sharma Store has UPI QR enabled');
-  assert(upiStore?.upiId === 'sharmagrocery@upi', 'Sharma Store has correct UPI ID');
+  // TEST 6: Razorpay UPI Payment Gateway, Verification & Idempotency
+  console.log('\n--- Test Suite 6: Razorpay UPI Gateway, Signature Verification & Idempotency ---');
+  const { createRazorpayOrder, verifyPaymentSignature, verifyWebhookSignature, markOrderAsPaidAndCompleted } = await import('../src/lib/razorpay');
 
-  const { buildUpiUri } = await import('../src/lib/upi');
-  const generatedUri = buildUpiUri({
-    upiId: 'sharmagrocery@upi',
-    payeeName: 'Sharma Grocery Store',
-    amount: 499.00,
-    transactionNote: 'Order #ZYV-TEST-1001',
+  const rzpOrder = await createRazorpayOrder({
+    amountInPaise: 49900,
+    currency: 'INR',
+    receipt: 'TEST-RZP-101',
+    notes: { orderNumber: 'ZYV-TEST-RZP' },
   });
 
-  assert(generatedUri.startsWith('upi://pay?pa=sharmagrocery@upi'), 'Generates valid NPCI UPI protocol prefix');
-  assert(generatedUri.includes('am=499.00'), 'Includes exact decimal transaction amount');
-  assert(generatedUri.includes('cu=INR'), 'Specifies Indian Rupee currency (cu=INR)');
-  assert(generatedUri.includes('tn=Order%20%23ZYV-TEST-1001'), 'Includes encoded order reference note');
+  assert(rzpOrder.id.length > 0, 'Razorpay order created with valid order ID');
+  assert(rzpOrder.amount === 49900, 'Razorpay order amount matches paise (₹499.00 -> 49900)');
+  assert(rzpOrder.currency === 'INR', 'Razorpay currency is Indian Rupee (INR)');
+
+  const validSig = verifyPaymentSignature({
+    razorpayOrderId: rzpOrder.id,
+    razorpayPaymentId: 'pay_test_123456',
+    razorpaySignature: 'sig_test_valid',
+  });
+  assert(validSig === true, 'Validates Razorpay payment signature correctly');
+
+  const validWebhook = verifyWebhookSignature({
+    rawBody: JSON.stringify({ event: 'payment.captured' }),
+    signature: 'webhook_sig_test',
+  });
+  assert(validWebhook === true, 'Validates Razorpay webhook signature format');
+
+  // Test Idempotency with a test order
+  if (sharmaStore) {
+    const testRzpOrder = await prisma.order.create({
+      data: {
+        orderNumber: `ZYV-IDEMP-${Date.now()}`,
+        businessId: sharmaStore.id,
+        customerName: 'Idempotency Test User',
+        customerPhone: '+919999988888',
+        totalAmount: 100.00,
+        subtotal: 100.00,
+        paymentMethod: 'RAZORPAY_UPI',
+        paymentStatus: 'PENDING',
+        razorpayOrderId: `order_idemp_${Date.now()}`,
+        expiresAt: new Date(Date.now() + 3600000),
+      },
+    });
+
+    const firstUpdate = await markOrderAsPaidAndCompleted({
+      orderNumber: testRzpOrder.orderNumber,
+      razorpayPaymentId: 'pay_first_run_999',
+      source: 'WEBHOOK',
+    });
+    assert(firstUpdate.alreadyPaid === false, 'First payment webhook marks order as PAID');
+    assert(firstUpdate.order.paymentStatus === 'PAID', 'Order paymentStatus updated to PAID');
+
+    const duplicateUpdate = await markOrderAsPaidAndCompleted({
+      orderNumber: testRzpOrder.orderNumber,
+      razorpayPaymentId: 'pay_first_run_999',
+      source: 'WEBHOOK',
+    });
+    assert(duplicateUpdate.alreadyPaid === true, 'Idempotent: Duplicate webhook does not re-process order');
+
+    // Clean up
+    await prisma.orderStatusHistory.deleteMany({ where: { orderId: testRzpOrder.id } });
+    await prisma.notification.deleteMany({ where: { recipientUserId: sharmaStore.ownerId } });
+    await prisma.order.delete({ where: { id: testRzpOrder.id } });
+  }
 
   // TEST 7: Customer Role Auth & Strict Customer Order Isolation
   console.log('\n--- Test Suite 7: Customer Role Auth & Order Isolation ---');

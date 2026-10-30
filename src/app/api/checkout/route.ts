@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
+import { createRazorpayOrder } from '@/lib/razorpay';
 import { checkoutSchema } from '@/lib/validations';
 import { validateAndReserveStock } from '@/lib/inventory';
 import { generateOrderNumber } from '@/lib/utils';
@@ -99,6 +100,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Create Razorpay Order with locked amount in paise
+    const amountInPaise = Math.round(totalAmount * 100);
+    const rzpOrder = await createRazorpayOrder({
+      amountInPaise,
+      currency: 'INR',
+      receipt: orderNumber,
+      notes: {
+        orderNumber,
+        businessId: business.id,
+        businessSlug: business.slug,
+      },
+    });
+
     // Run atomic stock reservation and order creation inside a transaction
     const createdOrder = await prisma.$transaction(async (tx) => {
       // 1. Validate and acquire atomic row lock on inventory
@@ -113,7 +127,7 @@ export async function POST(req: NextRequest) {
         throw new Error(reservationResult.error || 'Stock validation failed');
       }
 
-      // 2. Create Order record
+      // 2. Create Order record with Razorpay Order ID
       const order = await tx.order.create({
         data: {
           orderNumber,
@@ -126,9 +140,10 @@ export async function POST(req: NextRequest) {
           subtotal,
           taxAmount,
           totalAmount,
-          paymentMethod: paymentMethod === 'UPI_ONLINE' ? PaymentMethod.UPI_ONLINE : PaymentMethod.PAY_AT_STORE,
+          paymentMethod: PaymentMethod.RAZORPAY_UPI,
           paymentStatus: PaymentStatus.PENDING,
-          upiTransactionRef: upiTransactionRef || null,
+          razorpayOrderId: rzpOrder.id,
+          upiTransactionRef: null,
           pickupNotes: pickupNotes || null,
           expiresAt,
           items: {
@@ -145,7 +160,7 @@ export async function POST(req: NextRequest) {
             create: {
               fromStatus: null,
               toStatus: OrderStatus.PENDING,
-              note: `Order placed for in-store pickup at ${business.name}. Stock atomically reserved.`,
+              note: `Order placed with Razorpay UPI (Order: ${rzpOrder.id}). Stock atomically reserved.`,
             },
           },
         },
@@ -160,7 +175,7 @@ export async function POST(req: NextRequest) {
           recipientUserId: business.ownerId,
           businessId: business.id,
           title: `New Pickup Order #${orderNumber}`,
-          message: `${customerName} placed a pickup order for ₹${totalAmount.toFixed(2)} (${items.length} items). Please accept to begin preparation.`,
+          message: `${customerName} initiated a pickup order for ₹${totalAmount.toFixed(2)} (${items.length} items). Awaiting payment confirmation.`,
           type: NotificationType.NEW_ORDER,
           link: `/dashboard/orders/${order.id}`,
         },
@@ -177,6 +192,14 @@ export async function POST(req: NextRequest) {
       pickupInstructions: business.pickupInstructions,
       storeAddress: `${business.addressLine1}, ${business.city}`,
       trackingUrl: `/${business.slug}/orders/${createdOrder.orderNumber}`,
+      razorpay: {
+        keyId: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
+        orderId: rzpOrder.id,
+        amount: rzpOrder.amount,
+        currency: rzpOrder.currency,
+        name: business.name,
+        description: `Order #${createdOrder.orderNumber}`,
+      },
     });
   } catch (err: unknown) {
     console.error('Checkout error:', err);
