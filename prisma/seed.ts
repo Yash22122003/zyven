@@ -469,6 +469,18 @@ async function main() {
     });
   }
 
+  // 8.5 Create Demo Customer
+  const demoCustomer = await prisma.user.create({
+    data: {
+      email: 'priya@example.com',
+      phone: '+919876500001',
+      fullName: 'Priya Verma',
+      passwordHash: defaultPassword,
+      role: UserRole.CUSTOMER,
+    },
+  });
+  console.log('✅ Created Demo Customer: priya@example.com');
+
   // 9. Seed Sample Pickup Orders for Sharma Grocery Store
   const firstProduct = await prisma.product.findFirst({ where: { businessId: sharmaStore.id } });
   if (firstProduct) {
@@ -476,6 +488,7 @@ async function main() {
       data: {
         orderNumber: 'ZYV-20261030-1011',
         businessId: sharmaStore.id,
+        customerId: demoCustomer.id,
         customerName: 'Priya Verma',
         customerPhone: '+919876500001',
         customerEmail: 'priya@example.com',

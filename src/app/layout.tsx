@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { CartProvider } from '@/context/CartContext';
 import { Navbar } from '@/components/shared/Navbar';
 import { Footer } from '@/components/shared/Footer';
+import { CartDrawer } from '@/components/shared/CartDrawer';
 
 export const metadata: Metadata = {
   title: 'ZYVEN — Local Businesses. Digital Possibilities.',
@@ -18,9 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col bg-zinc-50/60 text-zinc-950 font-sans selection:bg-zinc-900 selection:text-white">
-        <Navbar />
-        <main className="flex-1 flex flex-col">{children}</main>
-        <Footer />
+        <CartProvider>
+          <Navbar />
+          <main className="flex-1 flex flex-col">{children}</main>
+          <Footer />
+          <CartDrawer />
+        </CartProvider>
       </body>
     </html>
   );

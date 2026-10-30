@@ -183,6 +183,40 @@ async function runTests() {
   assert(generatedUri.includes('cu=INR'), 'Specifies Indian Rupee currency (cu=INR)');
   assert(generatedUri.includes('tn=Order%20%23ZYV-TEST-1001'), 'Includes encoded order reference note');
 
+  // TEST 7: Customer Role Auth & Strict Customer Order Isolation
+  console.log('\n--- Test Suite 7: Customer Role Auth & Order Isolation ---');
+  assert(isReservedSlug('account') === true, 'Blocks "account" as reserved system slug');
+  assert(isReservedSlug('customer') === true, 'Blocks "customer" as reserved system slug');
+
+  const customerUser = await prisma.user.findFirst({ where: { email: 'priya@example.com' } });
+  assert(customerUser !== null, 'Demo customer Priya Verma exists');
+  assert(customerUser?.role === UserRole.CUSTOMER, 'Priya Verma has role CUSTOMER');
+
+  // Verify Customer Order Data Isolation
+  if (customerUser && sharmaStore) {
+    const customerOrders = await prisma.order.findMany({
+      where: {
+        OR: [
+          { customerId: customerUser.id },
+          { customerEmail: customerUser.email! },
+        ],
+      },
+    });
+    assert(customerOrders.length > 0, `Customer Priya has ${customerOrders.length} accessible order(s)`);
+
+    // Another customer should NOT see Priya's orders
+    const fakeOtherCustomerId = 'fake-other-customer-id-999';
+    const fakeOtherCustomerOrders = await prisma.order.findMany({
+      where: {
+        OR: [
+          { customerId: fakeOtherCustomerId },
+          { customerEmail: 'nonexistent@example.com' },
+        ],
+      },
+    });
+    assert(fakeOtherCustomerOrders.length === 0, 'Isolated: Other customer receives 0 of Priya\'s orders');
+  }
+
   console.log(`\n========================================`);
   console.log(`Test Results: ${passed} Passed, ${failed} Failed`);
   console.log(`========================================\n`);

@@ -3,12 +3,14 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useCart } from '@/hooks/useCart';
 import { Button } from '../ui/button';
-import { Store, User, LogOut, LayoutDashboard, Shield } from 'lucide-react';
+import { Store, User, LogOut, LayoutDashboard, Shield, ShoppingBag, PackageCheck } from 'lucide-react';
 
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { totalCount, toggleCart } = useCart();
   const [currentUser, setCurrentUser] = useState<{
     fullName: string;
     role: string;
@@ -21,6 +23,8 @@ export function Navbar() {
       .then((data) => {
         if (data && data.authenticated) {
           setCurrentUser(data.user);
+        } else {
+          setCurrentUser(null);
         }
       })
       .catch(() => {});
@@ -78,22 +82,43 @@ export function Navbar() {
           </a>
         </nav>
 
-        {/* User CTA actions */}
-        <div className="flex items-center gap-2.5">
+        {/* User CTA actions & Cart */}
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Universal Cart Trigger Button */}
+          <button
+            onClick={toggleCart}
+            className="relative p-2 rounded-xl text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 transition-colors flex items-center justify-center"
+            aria-label="View shopping cart"
+          >
+            <ShoppingBag className="w-5 h-5" />
+            {totalCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-zinc-950 text-white text-[11px] font-bold flex items-center justify-center shadow-xs animate-scale-in">
+                {totalCount}
+              </span>
+            )}
+          </button>
+
           {currentUser ? (
             <div className="flex items-center gap-2">
               {currentUser.role === 'SUPER_ADMIN' ? (
                 <Link href="/admin">
                   <Button variant="secondary" size="sm" className="gap-1.5">
                     <Shield className="w-3.5 h-3.5 text-zinc-700" />
-                    Admin Console
+                    <span className="hidden sm:inline">Admin Console</span>
+                  </Button>
+                </Link>
+              ) : currentUser.role === 'CUSTOMER' ? (
+                <Link href="/account/orders">
+                  <Button variant="secondary" size="sm" className="gap-1.5">
+                    <PackageCheck className="w-3.5 h-3.5 text-zinc-700" />
+                    <span>My Orders</span>
                   </Button>
                 </Link>
               ) : (
                 <Link href="/dashboard">
                   <Button variant="secondary" size="sm" className="gap-1.5">
                     <LayoutDashboard className="w-3.5 h-3.5 text-zinc-700" />
-                    Seller Dashboard
+                    <span className="hidden sm:inline">Seller Dashboard</span>
                   </Button>
                 </Link>
               )}
@@ -102,12 +127,13 @@ export function Navbar() {
                 size="sm"
                 onClick={handleLogout}
                 className="text-zinc-500 hover:text-zinc-900"
+                title="Log out"
               >
                 <LogOut className="w-4 h-4" />
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Link href="/login">
                 <Button variant="ghost" size="sm">
                   Sign in
@@ -116,7 +142,8 @@ export function Navbar() {
               <Link href="/register">
                 <Button variant="primary" size="sm" className="gap-1.5">
                   <Store className="w-3.5 h-3.5" />
-                  Open Store (₹1)
+                  <span className="hidden sm:inline">Open Store (₹1)</span>
+                  <span className="sm:hidden">Join</span>
                 </Button>
               </Link>
             </div>

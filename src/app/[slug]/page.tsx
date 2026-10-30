@@ -76,7 +76,7 @@ export default function StorefrontPage() {
   const [error, setError] = useState('');
   const [conflictModal, setConflictModal] = useState<{ existingBusinessName: string; pendingItem: any } | null>(null);
 
-  const { cart, addItem, updateQuantity, clearCart, totalCount, subtotal } = useCart();
+  const { cart, addItem, updateQuantity, clearCart, totalCount, subtotal, openCart } = useCart();
 
   useEffect(() => {
     if (!slug) return;
@@ -449,24 +449,41 @@ export default function StorefrontPage() {
       {cart.businessSlug === store.slug && cart.items.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200 shadow-xl px-4 py-3 sm:py-3.5">
           <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-zinc-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm">
+            <button
+              onClick={openCart}
+              className="flex items-center gap-2.5 text-left hover:opacity-80 transition-opacity"
+              title="Click to view cart items"
+            >
+              <div className="w-9 h-9 rounded-xl bg-zinc-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm shadow-xs">
                 {totalCount}
               </div>
               <div>
-                <div className="text-[10px] text-zinc-600">Store Pickup Cart</div>
+                <div className="text-[10px] text-zinc-500 font-medium flex items-center gap-1">
+                  <span>Store Pickup Cart</span>
+                  <span className="underline text-zinc-700 font-semibold">(View Items)</span>
+                </div>
                 <div className="font-extrabold text-sm sm:text-base text-zinc-950 font-mono">
                   {formatCurrency(subtotal)}
                 </div>
               </div>
-            </div>
+            </button>
 
-            <Link href={`/${store.slug}/checkout`}>
-              <Button size="md" className="gap-1.5 font-semibold shadow-sm h-10 px-5">
-                <span>Pickup Checkout</span>
-                <ArrowRight className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openCart}
+                className="hidden sm:inline-flex text-xs h-10 px-3.5"
+              >
+                View Items
               </Button>
-            </Link>
+              <Link href={`/${store.slug}/checkout`}>
+                <Button size="md" className="gap-1.5 font-semibold shadow-sm h-10 px-4 sm:px-5">
+                  <span>Pickup Checkout</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       )}

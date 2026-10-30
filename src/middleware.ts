@@ -23,9 +23,18 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // Protect Customer Account routes
+  if (pathname.startsWith('/account')) {
+    if (!token) {
+      const url = new URL('/login', request.url);
+      url.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(url);
+    }
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/admin/:path*'],
+  matcher: ['/dashboard/:path*', '/admin/:path*', '/account/:path*'],
 };

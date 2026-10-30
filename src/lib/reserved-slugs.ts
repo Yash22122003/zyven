@@ -1,10 +1,12 @@
 export const RESERVED_SLUGS = new Set([
+  'account',
   'admin',
   'api',
   'app',
   'auth',
   'cart',
   'checkout',
+  'customer',
   'dashboard',
   'docs',
   'explore',

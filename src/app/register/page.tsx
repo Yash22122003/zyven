@@ -1,20 +1,34 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { slugify } from '@/lib/utils';
-import { Store, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Store, ShoppingBag, ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialRole = searchParams.get('role') === 'customer' ? 'customer' : 'merchant';
+  const redirectPath = searchParams.get('redirect');
 
+  const [role, setRole] = useState<'customer' | 'merchant'>(initialRole);
   const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
-  const [formData, setFormData] = useState({
+
+  // Customer form state
+  const [customerData, setCustomerData] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: '',
+  });
+
+  // Merchant form state
+  const [merchantData, setMerchantData] = useState({
     fullName: '',
     email: '',
     phone: '',
@@ -41,13 +55,17 @@ export default function RegisterPage() {
       .catch(() => {});
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleCustomerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCustomerData({ ...customerData, [e.target.name]: e.target.value });
   };
 
-  const previewSlug = slugify(formData.businessName || 'your-store');
+  const handleMerchantChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    setMerchantData({ ...merchantData, [e.target.name]: e.target.value });
+  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const previewSlug = slugify(merchantData.businessName || 'your-store');
+
+  const handleCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -56,7 +74,10 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          role: 'CUSTOMER',
+          ...customerData,
+        }),
       });
 
       const data = await res.json();
@@ -64,7 +85,37 @@ export default function RegisterPage() {
         throw new Error(data.error || 'Registration failed');
       }
 
-      router.push('/dashboard');
+      router.push(redirectPath || '/account/orders');
+      router.refresh();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Registration failed';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMerchantSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'MERCHANT',
+          ...merchantData,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      router.push(redirectPath || '/dashboard');
       router.refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed';
@@ -75,45 +126,140 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex-1 py-12 px-4 sm:px-6 bg-zinc-50/50 flex items-center justify-center">
-      <div className="w-full max-w-xl space-y-6">
-        <div className="text-center space-y-1">
-          <Link href="/" className="inline-flex items-center gap-2 group mb-2">
-            <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center text-white font-bold text-xs">
-              Z
-            </div>
-            <span className="font-extrabold text-lg tracking-tight text-zinc-950">ZYVEN</span>
-          </Link>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-950">
-            Open Your Store on ZYVEN
-          </h1>
-          <p className="text-xs text-zinc-500">
-            Establish your digital storefront route with live inventory and store pickup.
-          </p>
-        </div>
-
-        <Card className="p-6 sm:p-8 border-zinc-200 shadow-sm">
-          {/* ₹1 Offer Banner */}
-          <div className="mb-6 p-3.5 rounded-xl bg-zinc-950 text-white flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <div className="text-xs">
-                <span className="font-bold text-sm">₹1 / month</span>
-                <span className="text-zinc-400 ml-1.5 font-medium">Introductory Launch Offer</span>
-              </div>
-            </div>
-            <Badge variant="neutral" size="sm" className="bg-zinc-800 text-zinc-200 border-zinc-700">
-              0% Commission
-            </Badge>
+    <div className="w-full max-w-xl space-y-6">
+      {/* Brand Header */}
+      <div className="text-center space-y-1">
+        <Link href="/" className="inline-flex items-center gap-2 group mb-2">
+          <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center text-white font-bold text-xs tracking-wider">
+            Z
           </div>
+          <span className="font-extrabold text-lg tracking-tight text-zinc-950">ZYVEN</span>
+        </Link>
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-950">
+          Create Your ZYVEN Account
+        </h1>
+        <p className="text-xs text-zinc-500">
+          {role === 'customer'
+            ? 'Sign up to track and manage your local in-store pickup orders'
+            : 'Establish your independent digital storefront route with live inventory'}
+        </p>
+      </div>
 
-          {error && (
-            <div className="mb-5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
-              {error}
+      {/* Role Segment Toggle */}
+      <div className="flex rounded-xl bg-zinc-100 p-1 border border-zinc-200">
+        <button
+          type="button"
+          onClick={() => {
+            setRole('customer');
+            setError('');
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+            role === 'customer'
+              ? 'bg-white text-zinc-950 shadow-xs'
+              : 'text-zinc-600 hover:text-zinc-950'
+          }`}
+        >
+          <ShoppingBag className="w-3.5 h-3.5" />
+          <span>Customer Account</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRole('merchant');
+            setError('');
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+            role === 'merchant'
+              ? 'bg-white text-zinc-950 shadow-xs'
+              : 'text-zinc-600 hover:text-zinc-950'
+          }`}
+        >
+          <Store className="w-3.5 h-3.5" />
+          <span>Open Store (₹1/mo)</span>
+        </button>
+      </div>
+
+      <Card className="p-6 sm:p-8 border-zinc-200/90 shadow-sm">
+        {error && (
+          <div className="mb-5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+            {error}
+          </div>
+        )}
+
+        {role === 'customer' ? (
+          /* Customer Registration Form */
+          <form onSubmit={handleCustomerSubmit} className="space-y-4">
+            <div className="space-y-3">
+              <Input
+                label="Full Name"
+                name="fullName"
+                placeholder="e.g. Priya Verma"
+                value={customerData.fullName}
+                onChange={handleCustomerChange}
+                required
+              />
+              <Input
+                label="Email Address"
+                type="email"
+                name="email"
+                placeholder="priya@example.com"
+                value={customerData.email}
+                onChange={handleCustomerChange}
+                required
+              />
+              <Input
+                label="Mobile Number (for pickup SMS updates)"
+                name="phone"
+                placeholder="+91 98765 43210"
+                value={customerData.phone}
+                onChange={handleCustomerChange}
+                required
+              />
+              <Input
+                label="Password"
+                type="password"
+                name="password"
+                placeholder="Minimum 6 characters"
+                value={customerData.password}
+                onChange={handleCustomerChange}
+                required
+              />
             </div>
-          )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="pt-3">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full font-semibold gap-2 shadow-sm"
+                isLoading={loading}
+              >
+                <span>Create Customer Account</span>
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-2 text-[11px] text-zinc-500">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Instant order status tracking & pickup verification</span>
+            </div>
+          </form>
+        ) : (
+          /* Merchant / Business Registration Form */
+          <form onSubmit={handleMerchantSubmit} className="space-y-4">
+            {/* ₹1 Offer Banner */}
+            <div className="mb-4 p-3.5 rounded-xl bg-zinc-950 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <div className="text-xs">
+                  <span className="font-bold text-sm">₹1 / month</span>
+                  <span className="text-zinc-400 ml-1.5 font-medium">Introductory Offer</span>
+                </div>
+              </div>
+              <Badge variant="neutral" size="sm" className="bg-zinc-800 text-zinc-200 border-zinc-700">
+                0% Commission
+              </Badge>
+            </div>
+
             <div className="border-b border-zinc-100 pb-4 mb-4">
               <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-wider mb-3">
                 1. Merchant Profile
@@ -123,8 +269,8 @@ export default function RegisterPage() {
                   label="Your Full Name"
                   name="fullName"
                   placeholder="e.g. Ramesh Sharma"
-                  value={formData.fullName}
-                  onChange={handleChange}
+                  value={merchantData.fullName}
+                  onChange={handleMerchantChange}
                   required
                 />
                 <Input
@@ -132,16 +278,16 @@ export default function RegisterPage() {
                   type="email"
                   name="email"
                   placeholder="ramesh@sharmastore.com"
-                  value={formData.email}
-                  onChange={handleChange}
+                  value={merchantData.email}
+                  onChange={handleMerchantChange}
                   required
                 />
                 <Input
                   label="Mobile Number (WhatsApp)"
                   name="phone"
                   placeholder="+91 98765 43210"
-                  value={formData.phone}
-                  onChange={handleChange}
+                  value={merchantData.phone}
+                  onChange={handleMerchantChange}
                   required
                 />
                 <Input
@@ -149,8 +295,8 @@ export default function RegisterPage() {
                   type="password"
                   name="password"
                   placeholder="Minimum 6 characters"
-                  value={formData.password}
-                  onChange={handleChange}
+                  value={merchantData.password}
+                  onChange={handleMerchantChange}
                   required
                 />
               </div>
@@ -165,8 +311,8 @@ export default function RegisterPage() {
                   label="Business Name"
                   name="businessName"
                   placeholder="e.g. Sharma Grocery Store"
-                  value={formData.businessName}
-                  onChange={handleChange}
+                  value={merchantData.businessName}
+                  onChange={handleMerchantChange}
                   required
                 />
 
@@ -184,8 +330,8 @@ export default function RegisterPage() {
                   </label>
                   <select
                     name="categorySlug"
-                    value={formData.categorySlug}
-                    onChange={handleChange}
+                    value={merchantData.categorySlug}
+                    onChange={handleMerchantChange}
                     className="flex h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                   >
                     {categories.length > 0 ? (
@@ -204,8 +350,8 @@ export default function RegisterPage() {
                   label="Physical Shop Address"
                   name="address"
                   placeholder="Shop No., Market / Complex, Street"
-                  value={formData.address}
-                  onChange={handleChange}
+                  value={merchantData.address}
+                  onChange={handleMerchantChange}
                   required
                 />
 
@@ -214,24 +360,24 @@ export default function RegisterPage() {
                     label="City"
                     name="city"
                     placeholder="e.g. Noida"
-                    value={formData.city}
-                    onChange={handleChange}
+                    value={merchantData.city}
+                    onChange={handleMerchantChange}
                     required
                   />
                   <Input
                     label="State"
                     name="state"
                     placeholder="e.g. UP"
-                    value={formData.state}
-                    onChange={handleChange}
+                    value={merchantData.state}
+                    onChange={handleMerchantChange}
                     required
                   />
                   <Input
                     label="Pincode"
                     name="pincode"
                     placeholder="e.g. 201301"
-                    value={formData.pincode}
-                    onChange={handleChange}
+                    value={merchantData.pincode}
+                    onChange={handleMerchantChange}
                     required
                   />
                 </div>
@@ -239,21 +385,36 @@ export default function RegisterPage() {
             </div>
 
             <div className="pt-2">
-              <Button type="submit" size="lg" className="w-full font-semibold gap-2 shadow-sm" isLoading={loading}>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full font-semibold gap-2 shadow-sm"
+                isLoading={loading}
+              >
                 <span>Create Storefront for ₹1</span>
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </div>
           </form>
-        </Card>
+        )}
+      </Card>
 
-        <p className="text-center text-xs text-zinc-500">
-          Already have a business on ZYVEN?{' '}
-          <Link href="/login" className="font-semibold text-zinc-900 hover:underline">
-            Sign in to dashboard
-          </Link>
-        </p>
-      </div>
+      <p className="text-center text-xs text-zinc-500">
+        Already have an account?{' '}
+        <Link href="/login" className="font-semibold text-zinc-900 hover:underline">
+          Sign in here
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <div className="flex-1 py-12 px-4 sm:px-6 bg-zinc-50/50 flex items-center justify-center">
+      <Suspense fallback={<div className="text-xs text-zinc-400">Loading registration...</div>}>
+        <RegisterForm />
+      </Suspense>
     </div>
   );
 }

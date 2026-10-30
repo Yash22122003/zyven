@@ -71,13 +71,35 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
   - Smooth horizontal category filter pills.
   - Sticky bottom checkout bar with item count and subtotal.
 - [x] **Automated Integration Test Suite** (`tests/integration.ts`):
-  - Reserved slugs and URL protection (6 assertions)
+  - Reserved slugs and URL protection (8 assertions)
   - Order state machine transitions (6 assertions)
   - Cross-tenant data isolation (4 assertions)
   - Atomic inventory concurrency & overselling prevention (6 assertions)
   - Subscription pricing governance (3 assertions)
   - Merchant UPI QR payment & NPCI URI protocol generation (6 assertions)
-  - **Total: 31/31 Passed (0 Failed)**.
+  - Customer role auth & customer order data isolation (4 assertions)
+  - **Total: 37/37 Passed (0 Failed)**.
+
+### Phase 6: Customer Auth, Customer Dashboard & Global Cart System
+- [x] **Customer Authentication & Onboarding**:
+  - Reused existing bcrypt/JWT HttpOnly cookie auth infrastructure.
+  - Added customer registration flow (`role: CUSTOMER`) alongside existing merchant registration via `/register` segment toggle.
+  - Implemented role-based redirects on `/login`: `SUPER_ADMIN` -> `/admin`, `MERCHANT` -> `/dashboard`, `CUSTOMER` -> `/account/orders`.
+  - Added quick 1-click Demo Customer login button on `/login` (`priya@example.com` / `Zyven@2026`).
+  - Added customer-aware navbar states: displays "My Orders" (`/account/orders`) and user identity for logged-in customers.
+- [x] **Customer Orders Dashboard & Protected Detail View**:
+  - Protected customer route `/account/orders` and `/account/orders/[id]` enforced via Next.js edge middleware.
+  - Implemented strict user/customer data isolation on `/api/customer/orders` and `/api/customer/orders/[id]` (`order.customerId === user.id`).
+  - Order status filters: `All`, `Active` (Pending, Confirmed, Preparing, Ready for Pickup), `Completed` (Collected/Delivered), and `Cancelled`.
+  - Customer order detail view with visual 5-step progress timeline, shop address, contact telephone, pickup notes, items table, and price breakdown.
+  - Automatically associates `customerId` on checkout when a customer is logged in.
+- [x] **Global Cart Architecture & UI Fix**:
+  - Transformed `useCart` into a unified `CartProvider` (`src/context/CartContext.tsx`) with localStorage persistence across tabs.
+  - Built sleek slide-over `CartDrawer` with items list, image previews, quantity controllers, subtotal, and direct checkout trigger.
+  - Added universal cart trigger button in the main `Navbar` with dynamic item count badge.
+  - Built dedicated `/cart` full-page view for the reserved `cart` route.
+  - Updated storefront bottom bar to allow opening the cart drawer (`View Items`) before checkout.
+  - Pre-fills customer name, phone, and email on `/[slug]/checkout` when logged in.
 
 ---
 

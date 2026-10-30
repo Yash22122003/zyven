@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { hashPassword, signToken, setAuthCookie } from '@/lib/auth';
-import { registerSchema } from '@/lib/validations';
+import { registerSchema, customerRegisterSchema } from '@/lib/validations';
 import { slugify } from '@/lib/utils';
 import { isValidSlug } from '@/lib/reserved-slugs';
 import { UserRole, SubscriptionStatus } from '@prisma/client';
@@ -9,6 +9,68 @@ import { UserRole, SubscriptionStatus } from '@prisma/client';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // 1. Handle Customer Registration (no store / business creation needed)
+    if (body.role === 'CUSTOMER' || (!body.businessName && !body.categorySlug)) {
+      const parsed = customerRegisterSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: 'Invalid registration details', details: parsed.error.format() },
+          { status: 400 }
+        );
+      }
+
+      const { fullName, email, phone, password } = parsed.data;
+
+      // Check existing user
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [{ email: email.toLowerCase() }, { phone }],
+        },
+      });
+
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'An account with this email or phone number already exists' },
+          { status: 409 }
+        );
+      }
+
+      const hashedPassword = await hashPassword(password);
+
+      const newUser = await prisma.user.create({
+        data: {
+          fullName,
+          email: email.toLowerCase(),
+          phone,
+          passwordHash: hashedPassword,
+          role: UserRole.CUSTOMER,
+        },
+      });
+
+      const token = signToken({
+        userId: newUser.id,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role,
+        fullName: newUser.fullName,
+      });
+
+      await setAuthCookie(token);
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          fullName: newUser.fullName,
+          role: newUser.role,
+          business: null,
+        },
+      });
+    }
+
+    // 2. Handle Merchant / Store Owner Registration
     const parsed = registerSchema.safeParse(body);
 
     if (!parsed.success) {

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Store, Shield } from 'lucide-react';
+import { Store, Shield, ShoppingBag } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
@@ -35,8 +35,11 @@ function LoginForm() {
         throw new Error(data.error || 'Failed to sign in');
       }
 
+      // Role-based redirects
       if (data.user.role === 'SUPER_ADMIN') {
         router.push(redirectPath || '/admin');
+      } else if (data.user.role === 'CUSTOMER') {
+        router.push(redirectPath || '/account/orders');
       } else {
         router.push(redirectPath || '/dashboard');
       }
@@ -64,7 +67,7 @@ function LoginForm() {
           <span className="font-extrabold text-lg tracking-tight text-zinc-950">ZYVEN</span>
         </Link>
         <h1 className="text-2xl font-bold tracking-tight text-zinc-950">Welcome back</h1>
-        <p className="text-xs text-zinc-500">Sign in to manage your digital storefront</p>
+        <p className="text-xs text-zinc-500">Sign in to manage your store or track pickup orders</p>
       </div>
 
       <Card className="p-6 border-zinc-200/90 shadow-sm">
@@ -108,6 +111,18 @@ function LoginForm() {
             Quick Test Profiles (Demo)
           </p>
           <div className="grid grid-cols-2 gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => handleQuickLogin('priya@example.com')}
+              className="p-2 text-left rounded-lg border border-zinc-200 hover:border-zinc-400 bg-zinc-50/50 transition-colors flex items-center gap-2"
+            >
+              <ShoppingBag className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <div className="truncate">
+                <div className="font-medium text-zinc-900 truncate">Customer Demo</div>
+                <div className="text-[10px] text-zinc-400">Priya Verma</div>
+              </div>
+            </button>
+
             <button
               type="button"
               onClick={() => handleQuickLogin('admin@zyven.me')}
@@ -159,12 +174,20 @@ function LoginForm() {
         </div>
       </Card>
 
-      <p className="text-center text-xs text-zinc-500">
-        Want to launch a digital store?{' '}
-        <Link href="/register" className="font-semibold text-zinc-900 hover:underline">
-          Register for ₹1/month
-        </Link>
-      </p>
+      <div className="text-center text-xs text-zinc-500 space-y-1">
+        <p>
+          Don&apos;t have an account?{' '}
+          <Link href="/register?role=customer" className="font-semibold text-zinc-900 hover:underline">
+            Sign up as Customer
+          </Link>
+        </p>
+        <p>
+          Want to launch a digital store?{' '}
+          <Link href="/register?role=merchant" className="font-semibold text-zinc-900 hover:underline">
+            Register store for ₹1/month
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

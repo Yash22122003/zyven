@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 import { checkoutSchema } from '@/lib/validations';
 import { validateAndReserveStock } from '@/lib/inventory';
 import { generateOrderNumber } from '@/lib/utils';
@@ -79,6 +80,25 @@ export async function POST(req: NextRequest) {
     const orderNumber = generateOrderNumber();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 mins expiry
 
+    // Lookup logged in user or matching customer account
+    const currentUser = await getCurrentUser();
+    let customerId = currentUser?.userId || null;
+
+    if (!customerId) {
+      const matchedUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            ...(customerEmail ? [{ email: customerEmail.toLowerCase() }] : []),
+            { phone: customerPhone },
+          ],
+        },
+        select: { id: true },
+      });
+      if (matchedUser) {
+        customerId = matchedUser.id;
+      }
+    }
+
     // Run atomic stock reservation and order creation inside a transaction
     const createdOrder = await prisma.$transaction(async (tx) => {
       // 1. Validate and acquire atomic row lock on inventory
@@ -98,6 +118,7 @@ export async function POST(req: NextRequest) {
         data: {
           orderNumber,
           businessId: business.id,
+          customerId,
           customerName,
           customerPhone,
           customerEmail: customerEmail || null,

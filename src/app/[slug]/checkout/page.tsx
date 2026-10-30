@@ -27,7 +27,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const slug = params.slug as string;
 
-  const { cart, clearCart, subtotal, totalCount } = useCart();
+  const { cart, clearCart, subtotal, totalCount, isLoaded } = useCart();
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -37,6 +37,20 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [storeInfo, setStoreInfo] = useState<any>(null);
+
+  // Pre-fill customer details if logged in
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.authenticated && data.user) {
+          if (data.user.fullName) setCustomerName(data.user.fullName);
+          if (data.user.phone) setCustomerPhone(data.user.phone);
+          if (data.user.email) setCustomerEmail(data.user.email);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!slug) return;
@@ -53,6 +67,15 @@ export default function CheckoutPage() {
       })
       .catch(() => {});
   }, [slug]);
+
+  if (!isLoaded) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 flex-1 w-full space-y-4">
+        <div className="h-8 w-48 bg-zinc-200 animate-pulse rounded-lg" />
+        <div className="h-64 bg-zinc-100 animate-pulse rounded-xl" />
+      </div>
+    );
+  }
 
   if (cart.items.length === 0 || cart.businessSlug !== slug) {
     return (
