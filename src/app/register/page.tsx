@@ -85,7 +85,7 @@ function RegisterForm() {
         throw new Error(data.error || 'Registration failed');
       }
 
-      router.push(redirectPath || '/account/orders');
+      router.push(redirectPath || '/account');
       router.refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed';

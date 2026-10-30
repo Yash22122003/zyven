@@ -58,6 +58,8 @@ export async function GET(req: NextRequest) {
         productCount: s._count.products,
         isOpenManually: s.isOpenManually,
         estimatedPrepTimeMinutes: s.estimatedPrepTimeMinutes,
+        upiId: s.upiId,
+        enableUpiQr: s.enableUpiQr,
       })),
       categories: categories.map((c) => ({
         id: c.id,

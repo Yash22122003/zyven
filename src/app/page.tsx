@@ -32,6 +32,8 @@ interface StoreItem {
   productCount: number;
   isOpenManually: boolean;
   estimatedPrepTimeMinutes: number;
+  upiId?: string | null;
+  enableUpiQr?: boolean;
 }
 
 export default function HomePage() {
@@ -89,7 +91,7 @@ export default function HomePage() {
 
           {/* Action CTAs */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/register">
+            <Link href="/register?role=merchant">
               <Button size="lg" className="h-12 px-7 text-sm font-semibold shadow-md gap-2">
                 <Store className="w-4 h-4" />
                 Launch Store for ₹1/month
@@ -101,10 +103,59 @@ export default function HomePage() {
                 <ArrowRight className="w-4 h-4 text-zinc-500" />
               </Button>
             </a>
+            <Link href="/login?role=merchant">
+              <Button variant="ghost" size="lg" className="h-12 px-5 text-sm font-medium text-zinc-600 hover:text-zinc-950 border border-zinc-200/80 bg-zinc-50/50">
+                Merchant Portal Sign In
+              </Button>
+            </Link>
+          </div>
+
+          {/* Prominent Hero Store Search Bar */}
+          <div className="mt-10 w-full max-w-2xl bg-white p-2 rounded-2xl border border-zinc-200/90 shadow-lg shadow-zinc-950/5">
+            <div className="flex items-center gap-2">
+              <div className="pl-3 text-zinc-400">
+                <Search className="w-5 h-5" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search neighborhood shops by name, category, or city..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 h-11 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+              />
+              <a href="#discover">
+                <Button size="sm" className="h-10 px-5 text-xs font-semibold shrink-0">
+                  Find Stores
+                </Button>
+              </a>
+            </div>
+
+            {/* Quick shortcuts */}
+            <div className="pt-2 px-3 pb-1 border-t border-zinc-100 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+              <span className="font-medium text-zinc-700">Quick Storefronts:</span>
+              <Link
+                href="/sharma-store"
+                className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-medium transition-colors"
+              >
+                Sharma Grocery Store
+              </Link>
+              <Link
+                href="/anita-fashion"
+                className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-medium transition-colors"
+              >
+                Anita Fashion Hub
+              </Link>
+              <Link
+                href="/mobile-world"
+                className="px-2 py-0.5 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-medium transition-colors"
+              >
+                Mobile World
+              </Link>
+            </div>
           </div>
 
           {/* Clean URL demonstration bar */}
-          <div className="mt-12 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200/90 text-xs text-zinc-600 font-mono shadow-xs">
+          <div className="mt-8 inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200/90 text-xs text-zinc-600 font-mono shadow-xs">
             <span className="text-zinc-400">Your Storefront URL:</span>
             <span className="text-zinc-900 font-semibold bg-white px-2 py-0.5 rounded border border-zinc-200">
               zyven.me/your-store
@@ -204,10 +255,25 @@ export default function HomePage() {
                           <Store className="w-8 h-8" />
                         </div>
                       )}
-                      <div className="absolute top-3 right-3">
-                        <Badge variant="brand" size="sm" className="bg-white/90 text-zinc-900 border border-zinc-200 shadow-xs">
+                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                        {store.enableUpiQr && store.upiId && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/95 text-emerald-800 text-[10px] font-semibold shadow-xs border border-emerald-200">
+                            UPI
+                          </span>
+                        )}
+                        <Badge variant="brand" size="sm" className="bg-white/95 text-zinc-900 border border-zinc-200 shadow-xs">
                           {store.category}
                         </Badge>
+                      </div>
+                      <div className="absolute bottom-3 left-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold backdrop-blur-md shadow-xs ${
+                          store.isOpenManually
+                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-zinc-950/80 text-zinc-300 border border-zinc-700/50'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${store.isOpenManually ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-400'}`} />
+                          <span>{store.isOpenManually ? 'Open for Pickup' : 'Store Paused'}</span>
+                        </span>
                       </div>
                     </div>
 
@@ -220,8 +286,14 @@ export default function HomePage() {
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                       </div>
 
-                      <div className="text-xs text-zinc-600 font-mono mt-0.5">
-                        zyven.me/{store.slug}
+                      <div className="text-xs text-zinc-600 font-mono mt-0.5 flex items-center gap-1.5">
+                        <span>zyven.me/{store.slug}</span>
+                        {store.city && (
+                          <>
+                            <span className="text-zinc-300">•</span>
+                            <span className="text-zinc-600 font-sans font-medium">{store.city}</span>
+                          </>
+                        )}
                       </div>
 
                       <p className="text-xs text-zinc-600 mt-2 line-clamp-2 leading-relaxed">

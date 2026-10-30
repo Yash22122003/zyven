@@ -55,8 +55,16 @@ export async function POST(req: NextRequest) {
 
     await setAuthCookie(token);
 
+    const defaultRedirect =
+      user.role === 'SUPER_ADMIN'
+        ? '/admin'
+        : user.role === 'CUSTOMER'
+        ? '/account'
+        : '/dashboard';
+
     return NextResponse.json({
       success: true,
+      redirectUrl: defaultRedirect,
       user: {
         id: user.id,
         email: user.email,

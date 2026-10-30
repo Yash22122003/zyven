@@ -80,6 +80,14 @@ export function Navbar() {
           >
             Pricing (₹1/mo)
           </a>
+          {!currentUser && (
+            <Link
+              href="/login?role=merchant"
+              className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 border border-zinc-200/80 rounded-md px-2.5 py-1 transition-colors"
+            >
+              Merchant Portal
+            </Link>
+          )}
         </nav>
 
         {/* User CTA actions & Cart */}
@@ -102,31 +110,60 @@ export function Navbar() {
             <div className="flex items-center gap-2">
               {currentUser.role === 'SUPER_ADMIN' ? (
                 <Link href="/admin">
-                  <Button variant="secondary" size="sm" className="gap-1.5">
-                    <Shield className="w-3.5 h-3.5 text-zinc-700" />
-                    <span className="hidden sm:inline">Admin Console</span>
+                  <Button variant="secondary" size="sm" className="gap-1.5 border-purple-200 bg-purple-50 text-purple-900 hover:bg-purple-100">
+                    <Shield className="w-3.5 h-3.5 text-purple-700" />
+                    <span className="font-semibold text-xs">Super Admin</span>
                   </Button>
                 </Link>
               ) : currentUser.role === 'CUSTOMER' ? (
-                <Link href="/account/orders">
-                  <Button variant="secondary" size="sm" className="gap-1.5">
-                    <PackageCheck className="w-3.5 h-3.5 text-zinc-700" />
-                    <span>My Orders</span>
-                  </Button>
-                </Link>
+                <div className="flex items-center gap-1.5">
+                  <Link href="/account">
+                    <Button variant="secondary" size="sm" className="gap-1.5 border-blue-200 bg-blue-50/80 text-blue-900 hover:bg-blue-100">
+                      <User className="w-3.5 h-3.5 text-blue-700" />
+                      <span className="text-xs font-semibold truncate max-w-[120px]">
+                        {currentUser.fullName ? currentUser.fullName.split(' ')[0] : 'Account'}
+                      </span>
+                      <span className="hidden sm:inline text-[10px] font-normal text-blue-600 bg-blue-100/80 px-1.5 py-0.2 rounded-full">
+                        Customer
+                      </span>
+                    </Button>
+                  </Link>
+                  <Link href="/account/orders" className="hidden sm:inline-block">
+                    <Button variant="ghost" size="sm" className="text-xs text-zinc-600 hover:text-zinc-950 gap-1 px-2">
+                      <PackageCheck className="w-3.5 h-3.5" />
+                      <span>Orders</span>
+                    </Button>
+                  </Link>
+                </div>
               ) : (
-                <Link href="/dashboard">
-                  <Button variant="secondary" size="sm" className="gap-1.5">
-                    <LayoutDashboard className="w-3.5 h-3.5 text-zinc-700" />
-                    <span className="hidden sm:inline">Seller Dashboard</span>
-                  </Button>
-                </Link>
+                <div className="flex items-center gap-1.5">
+                  <Link href="/dashboard">
+                    <Button variant="secondary" size="sm" className="gap-1.5 border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:bg-emerald-100">
+                      <LayoutDashboard className="w-3.5 h-3.5 text-emerald-700" />
+                      <span className="text-xs font-semibold truncate max-w-[130px]">
+                        {currentUser.business?.name || 'Seller Dashboard'}
+                      </span>
+                      <span className="hidden sm:inline text-[10px] font-normal text-emerald-700 bg-emerald-100/80 px-1.5 py-0.2 rounded-full">
+                        Merchant
+                      </span>
+                    </Button>
+                  </Link>
+                  {currentUser.business?.slug && (
+                    <Link
+                      href={`/${currentUser.business.slug}`}
+                      className="hidden md:inline-flex text-xs text-zinc-500 hover:text-zinc-900 font-mono items-center gap-1 px-2 py-1 rounded hover:bg-zinc-100 transition-colors"
+                      title="View live storefront"
+                    >
+                      <span>Storefront</span>
+                    </Link>
+                  )}
+                </div>
               )}
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleLogout}
-                className="text-zinc-500 hover:text-zinc-900"
+                className="text-zinc-400 hover:text-zinc-900 px-2"
                 title="Log out"
               >
                 <LogOut className="w-4 h-4" />
@@ -135,12 +172,12 @@ export function Navbar() {
           ) : (
             <div className="flex items-center gap-1.5 sm:gap-2">
               <Link href="/login">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" className="text-xs font-medium">
                   Sign in
                 </Button>
               </Link>
               <Link href="/register">
-                <Button variant="primary" size="sm" className="gap-1.5">
+                <Button variant="primary" size="sm" className="gap-1.5 text-xs font-medium">
                   <Store className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Open Store (₹1)</span>
                   <span className="sm:hidden">Join</span>

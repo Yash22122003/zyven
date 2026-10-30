@@ -126,6 +126,28 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
   - Added safe non-sensitive diagnostic logging at every stage (payment button click, SDK init, order creation, script loading, modal launch, callbacks, signature verification).
   - Created `/api/payment/razorpay/create-order` endpoint to ensure authentic Razorpay order IDs during retry flows.
 
+### Phase 8: Role-Based User Experience, Dedicated Portals & Strict RBAC
+- [x] **Universal Role-Aware Authentication (`/login`)**:
+  - Unified login portal with interactive role tabs for `Customer`, `Merchant`, and `Super Admin`.
+  - Context-aware guidance cards and 1-click test profile buttons (`priya@example.com`, `sharma@store.com`, `admin@zyven.me`).
+  - Automatic role-based redirects upon successful login: Customers land at `/account`, Merchants at `/dashboard`, and Super Admins at `/admin`.
+- [x] **Dedicated Customer Portal (`/account`)**:
+  - Modern shopping-oriented interface featuring personalized greeting ("Hi, {firstName}! Welcome back, Customer").
+  - Customer Profile Card with registered phone, email, membership date, and inline profile editing.
+  - Active in-store pickup tracker displaying live preparation status, store contact info, and pickup instructions.
+  - Favorite local stores showcase with direct storefront links.
+  - Recent order history with direct receipt / order tracking links.
+  - Strict isolation: Customers see only their own data with zero merchant or admin controls.
+- [x] **Enhanced Landing Page (`/`) & Role Navigation**:
+  - Prominent search bar in the Hero section to instantly discover neighborhood shops by name, category, or city.
+  - Quick-access shortcuts to popular merchant storefronts (`/sharma-store`, `/anita-fashion`, `/mobile-world`).
+  - Dual action CTAs: "Explore Local Stores" & "Customer Sign In" vs. "Launch Store for ₹1/mo" & "Merchant Portal Sign In".
+  - Featured stores showcase with live "Open for Pickup" and "UPI Accepted" badges.
+  - Global `Navbar` dynamically adapts based on session: renders Customer pill (`🛍️ {Name} (Customer)`), Merchant pill (`🏪 {Store} (Merchant)`), Super Admin pill (`⚡ Super Admin`), or public visitor shortcuts.
+- [x] **Strict Edge Middleware RBAC Enforcement (`src/middleware.ts`)**:
+  - Edge-compatible zero-dependency JWT claims parsing (`getJwtRole`).
+  - Enforces route-level RBAC: `/admin/*` restricted to `SUPER_ADMIN` (redirects unauthorized roles to `/dashboard` or `/account`); `/dashboard/*` blocks `CUSTOMER` users (redirects to `/account`); `/account/*` requires authentication.
+
 ---
 
 ## 3. Known Bugs / Issues

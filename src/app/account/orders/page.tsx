@@ -186,6 +186,16 @@ export default function CustomerOrdersPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link href="/account">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs text-zinc-700 hover:text-zinc-950"
+            >
+              <span>Customer Overview</span>
+            </Button>
+          </Link>
+
           <Button
             variant="outline"
             size="sm"
