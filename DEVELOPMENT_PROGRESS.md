@@ -77,8 +77,9 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
   - Atomic inventory concurrency & overselling prevention (6 assertions)
   - Subscription pricing governance (3 assertions)
   - Merchant UPI QR payment & NPCI URI protocol generation (6 assertions)
+  - Razorpay UPI order creation in paise, signature verification & webhook idempotency (7 assertions)
   - Customer role auth & customer order data isolation (4 assertions)
-  - **Total: 37/37 Passed (0 Failed)**.
+  - **Total: 39/39 Passed (0 Failed)**.
 
 ### Phase 6: Customer Auth, Customer Dashboard & Global Cart System
 - [x] **Customer Authentication & Onboarding**:
@@ -100,6 +101,26 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
   - Built dedicated `/cart` full-page view for the reserved `cart` route.
   - Updated storefront bottom bar to allow opening the cart drawer (`View Items`) before checkout.
   - Pre-fills customer name, phone, and email on `/[slug]/checkout` when logged in.
+
+### Phase 7: Razorpay UPI Payment Gateway, Webhook Verification & Cross-Device Detection
+- [x] **Standardized Sole Payment Method**:
+  - Replaced legacy static VPA and cash-on-pickup selections with Razorpay UPI (`RAZORPAY_UPI`) as the single official payment method across checkout and order workflows.
+  - Updated database schema with `razorpayOrderId`, `razorpayPaymentId`, `razorpaySignature` fields, and `RAZORPAY_UPI` payment method enum.
+- [x] **Backend Razorpay Orders API & Security**:
+  - Integrated official `razorpay` Node.js SDK with credentials stored strictly in server-side environment variables (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`).
+  - All amounts converted and validated strictly in paise (`Math.round(totalAmount * 100)`).
+  - Client checkout endpoint returns only the public `keyId`, `orderId`, `amount`, and `currency`—zero secrets exposed to client-side bundles.
+- [x] **Real-Time Cross-Device QR Detection**:
+  - Embedded dynamic UPI modal configuration enabling Google Pay, PhonePe, Paytm, CRED, BHIM, and on-screen dynamic UPI QR.
+  - Integrated 2-second background status polling on `/api/payment/status` while the Razorpay QR checkout is displayed.
+  - When the customer scans the on-screen QR code from a secondary mobile phone and completes payment, the webhook marks the order `PAID` in PostgreSQL; the desktop checkout immediately senses the status change, closes the modal, clears the active cart, and navigates to the verified order confirmation screen without requiring manual page refresh.
+- [x] **Dual Verification & Strict Idempotency**:
+  - Client-side checkout callback verified via HMAC-SHA256 signature against `order_id + "|" + payment_id`.
+  - Authoritative webhook endpoint (`/api/payment/razorpay/webhook`) parses raw request body and verifies `x-razorpay-signature` using timing-safe comparisons for `payment.captured` and `order.paid` events.
+  - Atomic idempotency check prevents duplicate processing: if an order is already marked `PAID`, subsequent webhook retries or callback executions immediately return without double-updating inventory or duplicating notifications.
+- [x] **Retry & Failure Recovery**:
+  - If payment is dismissed or fails, a persistent retry banner allows the customer to immediately re-launch UPI checkout.
+  - Dedicated order page (`/[slug]/orders/[orderNumber]`) includes a 1-click UPI retry flow and auto-polling until paid.
 
 ---
 
