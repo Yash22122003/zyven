@@ -10,16 +10,84 @@ export interface CreateOrderParams {
   notes?: Record<string, string>;
 }
 
+export interface RazorpayErrorInfo {
+  statusCode: number;
+  errorMessage: string;
+  errorCode?: string;
+  isAuthError: boolean;
+  stack?: string;
+}
+
+/**
+ * Extracts normalized error information from Razorpay SDK rejections or generic errors.
+ * Ensures that non-Error objects thrown by the SDK are properly parsed.
+ */
+export function extractRazorpayErrorInfo(err: unknown): RazorpayErrorInfo {
+  let statusCode = 500;
+  let errorMessage = 'Failed to process Razorpay payment';
+  let errorCode: string | undefined;
+  let stack: string | undefined;
+
+  if (err && typeof err === 'object') {
+    const anyErr = err as any;
+
+    if (typeof anyErr.statusCode === 'number') {
+      statusCode = anyErr.statusCode;
+    }
+
+    if (anyErr.error && typeof anyErr.error === 'object') {
+      if (typeof anyErr.error.description === 'string') {
+        errorMessage = anyErr.error.description;
+      }
+      if (typeof anyErr.error.code === 'string') {
+        errorCode = anyErr.error.code;
+      }
+    } else if (typeof anyErr.message === 'string') {
+      errorMessage = anyErr.message;
+    }
+
+    if (typeof anyErr.stack === 'string') {
+      stack = anyErr.stack;
+    }
+  } else if (typeof err === 'string') {
+    errorMessage = err;
+  }
+
+  const isAuthError =
+    statusCode === 401 ||
+    errorMessage.toLowerCase().includes('authentication') ||
+    errorMessage.toLowerCase().includes('unauthorized');
+
+  if (isAuthError) {
+    statusCode = 401;
+    errorMessage =
+      'Razorpay authentication failed: Invalid or revoked API credentials in RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET';
+  }
+
+  return { statusCode, errorMessage, errorCode, isAuthError, stack };
+}
+
 export function getRazorpayClient(): Razorpay {
-  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
-  const key_secret = process.env.RAZORPAY_KEY_SECRET || '';
+  const rawKeyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
+  const rawSecret = process.env.RAZORPAY_KEY_SECRET || '';
+
+  const key_id = rawKeyId.trim();
+  const key_secret = rawSecret.trim();
 
   if (!key_id || !key_secret) {
-    console.error('[Razorpay Backend] Missing API credentials in environment variables');
+    console.error('[Razorpay Backend Stage 3] Missing API credentials in environment variables');
     throw new Error('Razorpay API keys not configured. Please verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env');
   }
 
-  console.log('[Razorpay Backend] Razorpay client initialized with Key ID:', `${key_id.slice(0, 8)}...`);
+  if (key_id.includes('placeholder') || key_secret.includes('placeholder')) {
+    console.error('[Razorpay Backend Stage 3] Placeholder keys detected in environment variables');
+    throw new Error('Razorpay credentials contain placeholder values. Please set active Test Mode keys in .env');
+  }
+
+  console.log('[Razorpay Backend Stage 3] Razorpay client initialized:', {
+    keyIdPrefix: key_id.slice(0, 8) + '...',
+    isTestMode: key_id.startsWith('rzp_test_'),
+  });
 
   return new Razorpay({
     key_id,
@@ -37,7 +105,11 @@ export async function createRazorpayOrder({
   receipt,
   notes = {},
 }: CreateOrderParams): Promise<{ id: string; amount: number; currency: string }> {
-  console.log('[Razorpay Backend] Razorpay order creation started:', {
+  if (amountInPaise < 100) {
+    throw new Error('Razorpay requires a minimum transaction amount of ₹1.00 (100 paise)');
+  }
+
+  console.log('[Razorpay Backend Stage 4] Razorpay order creation attempted:', {
     receipt,
     amountInPaise,
     currency,
@@ -48,14 +120,15 @@ export async function createRazorpayOrder({
     const order = await rzp.orders.create({
       amount: amountInPaise,
       currency,
-      receipt,
+      receipt: receipt.slice(0, 40),
       notes,
     });
 
-    console.log('[Razorpay Backend] Razorpay order creation successful:', {
+    console.log('[Razorpay Backend Stage 5] Razorpay response received:', {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
+      status: order.status,
     });
 
     return {
@@ -64,8 +137,13 @@ export async function createRazorpayOrder({
       currency: order.currency,
     };
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Unknown Razorpay error';
-    console.error('[Razorpay Backend] Razorpay order creation failed:', errorMsg);
+    const errInfo = extractRazorpayErrorInfo(err);
+    console.error('[Razorpay Backend Stage 4 Error] Razorpay order creation failed:', {
+      statusCode: errInfo.statusCode,
+      errorCode: errInfo.errorCode,
+      message: errInfo.errorMessage,
+      stack: errInfo.stack || (err instanceof Error ? err.stack : undefined),
+    });
     throw err;
   }
 }

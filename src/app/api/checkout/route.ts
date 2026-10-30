@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { createRazorpayOrder } from '@/lib/razorpay';
+import { createRazorpayOrder, extractRazorpayErrorInfo } from '@/lib/razorpay';
 import { checkoutSchema } from '@/lib/validations';
 import { validateAndReserveStock } from '@/lib/inventory';
 import { generateOrderNumber } from '@/lib/utils';
@@ -216,8 +216,16 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: unknown) {
-    console.error('Checkout error:', err);
-    const message = err instanceof Error ? err.message : 'Checkout failed';
-    return NextResponse.json({ error: message }, { status: 400 });
+    const errInfo = extractRazorpayErrorInfo(err);
+    console.error('[Razorpay Backend Error] Checkout failed:', {
+      statusCode: errInfo.statusCode,
+      errorCode: errInfo.errorCode,
+      message: errInfo.errorMessage,
+      stack: errInfo.stack || (err instanceof Error ? err.stack : undefined),
+    });
+    return NextResponse.json(
+      { error: errInfo.errorMessage, code: errInfo.errorCode },
+      { status: errInfo.statusCode >= 400 && errInfo.statusCode < 600 ? errInfo.statusCode : 500 }
+    );
   }
 }

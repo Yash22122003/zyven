@@ -121,6 +121,10 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
 - [x] **Retry & Failure Recovery**:
   - If payment is dismissed or fails, a persistent retry banner allows the customer to immediately re-launch UPI checkout.
   - Dedicated order page (`/[slug]/orders/[orderNumber]`) includes a 1-click UPI retry flow and auto-polling until paid.
+- [x] **Diagnostic Telemetry & Strict Real Order ID Enforcement**:
+  - Eliminated mock order ID fallbacks (`order_...`); requires authentic Razorpay Order creation via official SDK.
+  - Added safe non-sensitive diagnostic logging at every stage (payment button click, SDK init, order creation, script loading, modal launch, callbacks, signature verification).
+  - Created `/api/payment/razorpay/create-order` endpoint to ensure authentic Razorpay order IDs during retry flows.
 
 ---
 
