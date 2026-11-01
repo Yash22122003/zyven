@@ -36,7 +36,18 @@ RUN npx prisma generate
 # Build Next.js application in standalone mode
 RUN npm run build
 
-# 4. Production Runner stage: minimal secure runtime image
+# 4. Migrator stage: lightweight one-off image for executing Prisma migrations in VPC
+FROM base AS migrator
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY prisma ./prisma/
+
+RUN npm ci --omit=dev --ignore-scripts && npm install prisma@5.22.0 --no-save
+
+CMD ["npx", "prisma", "migrate", "deploy"]
+
+# 5. Production Runner stage: minimal secure runtime image
 FROM base AS runner
 WORKDIR /app
 
