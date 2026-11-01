@@ -86,7 +86,7 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
   - Reused existing bcrypt/JWT HttpOnly cookie auth infrastructure.
   - Added customer registration flow (`role: CUSTOMER`) alongside existing merchant registration via `/register` segment toggle.
   - Implemented role-based redirects on `/login`: `SUPER_ADMIN` -> `/admin`, `MERCHANT` -> `/dashboard`, `CUSTOMER` -> `/account/orders`.
-  - Added quick 1-click Demo Customer login button on `/login` (`priya@example.com` / `Zyven@2026`).
+  - Added quick 1-click Demo Customer login button on `/login` (`priya@example.com` / `[DEMO_PASSWORD]`).
   - Added customer-aware navbar states: displays "My Orders" (`/account/orders`) and user identity for logged-in customers.
 - [x] **Customer Orders Dashboard & Protected Detail View**:
   - Protected customer route `/account/orders` and `/account/orders/[id]` enforced via Next.js edge middleware.
@@ -150,7 +150,7 @@ ZYVEN enables local independent businesses to launch digital storefronts (`zyven
 
 ### Phase 9: Secure Login, Demo Credential Removal & Subscription-Gated Merchant Onboarding
 - [x] **Part A: Demo Credential Sanitization & Protected Admin Provisioning**:
-  - Completely removed static "QUICK TEST PROFILES" UI, demo email cards, and hardcoded `Zyven@2026` passwords from `/login` and `/register`. Zero credentials present in frontend code, JS bundles, API responses, or browser storage.
+  - Completely removed static "QUICK TEST PROFILES" UI, demo email cards, and hardcoded demo passwords from `/login` and `/register`. Zero credentials present in frontend code, JS bundles, API responses, or browser storage.
   - Hardened demo login endpoint (`/api/auth/demo-login`): Returns HTTP 404 whenever `NODE_ENV === 'production'` or `ENABLE_DEMO_LOGIN !== 'true'`. Conditionally loads demo buttons on the frontend only when this server route returns 200 in development.
   - Super Admin public registration permanently blocked on `/api/auth/register` with HTTP 403 Forbidden.
   - Implemented secure Super Admin provisioning CLI (`scripts/provision-super-admin.ts` / `npm run admin:provision`) reading credentials from `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` with bcrypt hashing.
