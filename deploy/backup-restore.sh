@@ -15,15 +15,14 @@ chmod 700 "$BACKUP_DIR"
 echo "=== Starting ZYVEN Database Backup at $(date -u) ==="
 
 # 1. Execute pg_dump from within PostgreSQL container in custom format
-docker exec -t zyven-db-1 pg_dump -U zyven_app -Fc zyven_prod > "$DUMP_FILE"
+docker exec -t zyven-db pg_dump -U zyven_app -Fc zyven_prod > "$DUMP_FILE"
 
-# 2. Client-Side Encryption using AES-256-CBC
-ENCRYPTION_KEY=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_ENCRYPTION_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+# 2. Authenticated Client-Side Encryption using AES-256-GCM
+BACKUP_ENCRYPTION_KEY=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_ENCRYPTION_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
 
-openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
-  -in "$DUMP_FILE" \
-  -out "$ENC_FILE" \
-  -pass pass:"$ENCRYPTION_KEY"
+export BACKUP_ENCRYPTION_KEY
+node /opt/zyven/deploy/crypto-gcm.js encrypt "$DUMP_FILE" "$ENC_FILE"
+unset BACKUP_ENCRYPTION_KEY
 
 rm -f "$DUMP_FILE"
 

@@ -1,6 +1,7 @@
 services:
   # 1. PostgreSQL Database (Internal only, zero exposed host ports)
   db:
+    container_name: zyven-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -46,6 +47,7 @@ services:
 
   # 3. Next.js 14 Production App (Standalone, pinned by immutable tag/digest)
   app:
+    container_name: zyven-app
     image: ${ECR_REGISTRY:-532787445442.dkr.ecr.ap-south-1.amazonaws.com}/zyven:${APP_TAG:-app-58d2dff}
     restart: unless-stopped
     environment:

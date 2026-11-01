@@ -43,7 +43,7 @@ run_cmd "Attach SSM Managed Core Policy" \
   "aws iam attach-role-policy --role-name zyven-ec2-role --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 
 run_cmd "Attach Zyven Scoped Policy (ECR pull, SSM get, KMS decrypt)" \
-  "aws iam put-role-policy --role-name zyven-ec2-role --policy-name zyven-ec2-permissions --policy-document file://docs/IAM_POLICY.json"
+  "aws iam put-role-policy --role-name zyven-ec2-role --policy-name zyven-ec2-permissions --policy-document file://deploy/IAM_POLICY.json"
 
 run_cmd "Create Instance Profile & Add Role" \
   "aws iam create-instance-profile --instance-profile-name zyven-ec2-instance-profile && \

@@ -55,10 +55,12 @@ if [ -b "$DATA_DEV" ]; then
   fi
   mount -a
   mkdir -p /mnt/data/postgres
+  chown -R 70:70 /mnt/data/postgres
   chmod 700 /mnt/data/postgres
 else
   echo "Warning: Dedicated EBS device not found. Creating local directory /mnt/data"
   mkdir -p /mnt/data/postgres
+  chown -R 70:70 /mnt/data/postgres
   chmod 700 /mnt/data/postgres
 fi
 

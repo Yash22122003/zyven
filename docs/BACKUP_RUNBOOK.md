@@ -9,7 +9,7 @@
 3. **Off-AWS Encrypted Database Dumps (Cloudflare R2 / Backblaze B2)**:
    - Executes nightly via cron at 03:00 UTC (`deploy/backup-restore.sh`).
    - Format: PostgreSQL Custom Archive (`-Fc`).
-   - Encryption: Client-side AES-256-CBC (`openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000`).
+   - Encryption: Client-side Authenticated Encryption (AES-256-GCM + Scrypt KDF via `deploy/crypto-gcm.js`).
    - Retention Policy: 7 daily + 4 weekly archives.
 
 ---
@@ -25,9 +25,10 @@ DUMP_FILE="zyven_backup_restored.dump"
 # Download from Cloudflare R2
 aws s3 cp "s3://zyven-production-backups/daily/${ENC_FILE}" . --endpoint-url "https://<account-id>.r2.cloudflarestorage.com"
 
-# Fetch key from SSM and decrypt
+# Fetch key from SSM and decrypt with authenticity verification
 KEY=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_ENCRYPTION_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in "$ENC_FILE" -out "$DUMP_FILE" -pass pass:"$KEY"
+BACKUP_ENCRYPTION_KEY="$KEY" node /opt/zyven/deploy/crypto-gcm.js decrypt "$ENC_FILE" "$DUMP_FILE"
+unset KEY
 ```
 
 ### Step 2: Test Restore in an Isolated Throwaway Container
@@ -58,8 +59,8 @@ If restoring to live production database:
 docker compose -f /opt/zyven/docker-compose.prod.yml stop app
 
 # 2. Restore database
-docker cp "$DUMP_FILE" zyven-db-1:/tmp/restore.dump
-docker exec zyven-db-1 pg_restore -U zyven_app -d zyven_prod --clean --if-exists /tmp/restore.dump
+docker cp "$DUMP_FILE" zyven-db:/tmp/restore.dump
+docker exec zyven-db pg_restore -U zyven_app -d zyven_prod --clean --if-exists /tmp/restore.dump
 
 # 3. Restart application
 docker compose -f /opt/zyven/docker-compose.prod.yml start app
