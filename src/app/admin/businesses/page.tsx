@@ -17,8 +17,49 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
+interface BusinessItem {
+  id: string;
+  name: string;
+  slug: string;
+  owner: { id: string; fullName: string; email: string; phone: string };
+  category: string;
+  city: string;
+  state: string;
+  phone: string;
+  isVerified: boolean;
+  isActive: boolean;
+  status: string;
+  isOpenManually: boolean;
+  productCount: number;
+  orderCount: number;
+  selectedPlan: {
+    id: string;
+    name: string;
+    code: string;
+    price?: number;
+    priceInr?: number;
+  } | null;
+  subscription: {
+    id?: string;
+    planName: string;
+    code: string;
+    price?: number;
+    priceInr?: number;
+    status: string;
+    currentPeriodEnd?: string | Date;
+  } | null;
+  payments: Array<{
+    id: string;
+    amount: number;
+    status: string;
+    method: string;
+    createdAt: string | Date;
+  }>;
+  createdAt: string | Date;
+}
+
 export default function AdminBusinessesPage() {
-  const [businesses, setBusinesses] = useState<any[]>([]);
+  const [businesses, setBusinesses] = useState<BusinessItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState<'ALL' | 'ACTIVE' | 'PENDING' | 'FAILED' | 'SUSPENDED'>('ALL');
@@ -287,7 +328,7 @@ export default function AdminBusinessesPage() {
                             {b.subscription.code}
                           </Badge>
                           <div className="text-[10px] text-zinc-500 mt-0.5">
-                            {formatCurrency(b.subscription.price)}/mo
+                            {formatCurrency(b.subscription.priceInr ?? b.subscription.price ?? 0)}/mo
                           </div>
                         </div>
                       ) : b.selectedPlan ? (
@@ -296,7 +337,7 @@ export default function AdminBusinessesPage() {
                             {b.selectedPlan.code} (Selected)
                           </Badge>
                           <div className="text-[10px] text-zinc-400 mt-0.5">
-                            Pending {formatCurrency(b.selectedPlan.priceInr)}
+                            Pending {formatCurrency(b.selectedPlan.priceInr ?? b.selectedPlan.price ?? 0)}
                           </div>
                         </div>
                       ) : (
