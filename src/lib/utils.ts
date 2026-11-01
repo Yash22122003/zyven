@@ -5,10 +5,38 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number | string | { toString(): string }): string {
-  const numericAmount = typeof amount === 'number' ? amount : parseFloat(amount.toString());
-  if (isNaN(numericAmount)) return '₹0.00';
-  
+export function formatCurrency(
+  amount: number | string | { toString(): string; toNumber?(): number } | null | undefined
+): string {
+  if (amount === null || amount === undefined) {
+    return '₹0.00';
+  }
+
+  let numericAmount: number;
+
+  if (typeof amount === 'number') {
+    numericAmount = amount;
+  } else if (typeof amount === 'string') {
+    const trimmed = amount.trim();
+    if (trimmed === '') return '₹0.00';
+    numericAmount = Number(trimmed);
+  } else if (typeof amount === 'bigint') {
+    numericAmount = Number(amount);
+  } else if (typeof (amount as any)?.toNumber === 'function') {
+    // Handle Prisma Decimal or Decimal.js instances
+    numericAmount = (amount as any).toNumber();
+  } else if (typeof amount === 'object' && typeof amount.toString === 'function') {
+    const str = amount.toString().trim();
+    if (str === '' || str === '[object Object]') return '₹0.00';
+    numericAmount = Number(str);
+  } else {
+    numericAmount = Number(amount);
+  }
+
+  if (typeof numericAmount !== 'number' || isNaN(numericAmount) || !isFinite(numericAmount)) {
+    return '₹0.00';
+  }
+
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
