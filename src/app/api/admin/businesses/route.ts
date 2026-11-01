@@ -74,21 +74,24 @@ export async function GET(req: NextRequest) {
               id: b.selectedPlan.id,
               name: b.selectedPlan.name,
               code: b.selectedPlan.code,
-              price: Number(b.selectedPlan.priceInr),
+              price: Number(b.selectedPlan.priceInr ?? 0),
+              priceInr: Number(b.selectedPlan.priceInr ?? 0),
             }
           : null,
         subscription: b.subscription
           ? {
-              planName: b.subscription.plan.name,
-              code: b.subscription.plan.code,
-              price: Number(b.subscription.plan.priceInr),
+              id: b.subscription.id,
+              planName: b.subscription.plan?.name ?? 'Standard Plan',
+              code: b.subscription.plan?.code ?? 'STANDARD',
+              price: Number(b.subscription.plan?.priceInr ?? 0),
+              priceInr: Number(b.subscription.plan?.priceInr ?? 0),
               status: b.subscription.status,
               currentPeriodEnd: b.subscription.currentPeriodEnd,
             }
           : null,
         payments: b.subscriptionPayments.map((p) => ({
           id: p.id,
-          amount: Number(p.amount),
+          amount: Number(p.amount ?? 0),
           status: p.status,
           method: p.paymentMethod,
           createdAt: p.createdAt,
