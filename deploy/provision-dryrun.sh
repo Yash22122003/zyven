@@ -66,6 +66,9 @@ run_cmd "Create Encrypted gp3 Volume (20 GB)" \
     --tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=zyven-postgres-data},{Key=Environment,Value=Production}]' \
     --region $REGION"
 
+run_cmd "Record Volume ID in SSM Parameter Store" \
+  "aws ssm put-parameter --name '/zyven/prod/DATA_VOLUME_ID' --value '<VOLUME_ID>' --type String --overwrite --region $REGION"
+
 # 4. Launch EC2 Instance (AL2023 ARM64, IMDSv2 Required)
 run_cmd "Launch EC2 Instance ($INSTANCE_TYPE, AL2023 ARM64, IMDSv2 Enforced)" \
   "AMI_ID=\$(aws ssm get-parameter --name '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64' --region $REGION --query 'Parameter.Value' --output text)

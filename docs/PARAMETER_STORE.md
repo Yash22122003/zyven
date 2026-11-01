@@ -23,6 +23,7 @@ All parameters are stored under the `/zyven/prod/` hierarchy using `SecureString
 | `/zyven/prod/BACKUP_S3_SECRET_KEY` | `SecureString` | Cloudflare R2 / Backblaze B2 S3-compatible Secret Key |
 | `/zyven/prod/APP_TAG` | `String` | Immutable app tag (e.g., `app-58d2dff` or full digest) |
 | `/zyven/prod/MIGRATOR_TAG` | `String` | Immutable migrator tag (e.g., `migrator-58d2dff` or full digest) |
+| `/zyven/prod/DATA_VOLUME_ID` | `String` | Dedicated EBS persistent volume ID (e.g. `vol-0123456789abcdef0`) |
 
 ---
 

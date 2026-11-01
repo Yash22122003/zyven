@@ -14,18 +14,7 @@ dnf install -y docker git aws-cli jq dnf-automatic
 # Enable automatic security updates
 systemctl enable --now dnf-automatic.timer
 
-# 2. Docker Service Setup
-systemctl enable --now docker
-usermod -aG docker ec2-user
-
-# Install Docker Compose Plugin v2
-DOCKER_CONFIG=${DOCKER_CONFIG:-/usr/local/lib/docker}
-mkdir -p "$DOCKER_CONFIG/cli-plugins"
-curl -SL https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-linux-aarch64 \
-  -o "$DOCKER_CONFIG/cli-plugins/docker-compose"
-chmod +x "$DOCKER_CONFIG/cli-plugins/docker-compose"
-
-# 3. 2 GB Swap File Setup (Mitigate OOM spikes)
+# 2. 2 GB Swap File Setup (Mitigate OOM spikes)
 if [ ! -f /swapfile ]; then
   echo "Setting up 2 GB swap..."
   dd if=/dev/zero of=/swapfile bs=128M count=16 status=progress
@@ -35,19 +24,69 @@ if [ ! -f /swapfile ]; then
   echo "/swapfile swap swap defaults 0 0" >> /etc/fstab
 fi
 
-# 4. Encrypted Persistent EBS Mount (/mnt/data)
-# Poll and wait up to 60 seconds for the dedicated EBS data volume to attach
+# 3. Encrypted Persistent EBS Mount (/mnt/data)
+# Identify EBS volume using Volume ID / NVMe serial (never assume /dev/nvme1n1)
+REGION="ap-south-1"
+TARGET_VOL_ID=$(aws ssm get-parameter --name "/zyven/prod/DATA_VOLUME_ID" --region "$REGION" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+TARGET_SERIAL=""
+if [ -n "$TARGET_VOL_ID" ] && [ "$TARGET_VOL_ID" != "None" ]; then
+  TARGET_SERIAL=$(echo "$TARGET_VOL_ID" | tr -d '-')
+  echo "Targeting specific EBS Volume ID: $TARGET_VOL_ID (Serial: $TARGET_SERIAL)"
+else
+  echo "No specific /zyven/prod/DATA_VOLUME_ID set; discovering attached EBS data volume by NVMe serial / mapping..."
+fi
+
 DATA_DEV=""
-echo "Waiting for dedicated EBS data volume to attach..."
-for i in $(seq 1 30); do
-  if [ -b "/dev/nvme1n1" ]; then
-    DATA_DEV="/dev/nvme1n1"
-    break
-  elif [ -b "/dev/xvdf" ]; then
-    DATA_DEV="/dev/xvdf"
-    break
-  fi
-  echo "Data volume not attached yet. Sleeping 2s (attempt $i/30)..."
+echo "Polling for dedicated EBS data volume to attach..."
+for attempt in $(seq 1 30); do
+  # Determine root block device to exclude it
+  ROOT_DEV=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" 2>/dev/null || echo "nvme0n1")
+
+  for sys_dev in /sys/block/nvme[0-9]*n[0-9]*; do
+    [ -d "$sys_dev" ] || continue
+    bname=$(basename "$sys_dev")
+    # Skip root block device
+    [ "$bname" = "$ROOT_DEV" ] && continue
+
+    dev_node="/dev/$bname"
+    [ -b "$dev_node" ] || continue
+
+    # Read NVMe serial
+    serial=""
+    if [ -f "$sys_dev/device/serial" ]; then
+      serial=$(tr -d '[:space:]' < "$sys_dev/device/serial")
+    fi
+
+    # Read ebsnvme-id if available
+    ebs_vol=""
+    ebs_map=""
+    if [ -x /sbin/ebsnvme-id ]; then
+      ebs_vol=$(/sbin/ebsnvme-id -v "$dev_node" 2>/dev/null || true)
+      ebs_map=$(/sbin/ebsnvme-id -b "$dev_node" 2>/dev/null || true)
+    fi
+
+    # Check match against target Volume ID / serial if defined
+    if [ -n "$TARGET_SERIAL" ]; then
+      if [ "$serial" = "$TARGET_SERIAL" ] || [ "$ebs_vol" = "$TARGET_VOL_ID" ]; then
+        DATA_DEV="$dev_node"
+        echo "Matched EBS volume by ID/serial ($ebs_vol / $serial): $DATA_DEV"
+        break 2
+      fi
+    else
+      # Fallback: Match mapping /dev/xvdf or EBS volume serial pattern
+      if [ "$ebs_map" = "/dev/xvdf" ] || [ "$ebs_map" = "xvdf" ]; then
+        DATA_DEV="$dev_node"
+        echo "Matched EBS volume by mapping /dev/xvdf ($dev_node): $ebs_vol"
+        break 2
+      elif [[ "$serial" =~ ^vol[0-9a-f]+$ ]]; then
+        DATA_DEV="$dev_node"
+        echo "Matched EBS volume by NVMe serial ($serial): $DATA_DEV"
+        break 2
+      fi
+    fi
+  done
+
+  echo "Data volume not ready yet. Sleeping 2s (attempt $attempt/30)..."
   sleep 2
 done
 
@@ -58,12 +97,17 @@ if [ -z "$DATA_DEV" ] || [ ! -b "$DATA_DEV" ]; then
 fi
 
 echo "Detected persistent block device: $DATA_DEV"
-# Never format an existing filesystem: format ONLY if blkid detects no filesystem header
-if ! blkid "$DATA_DEV" > /dev/null 2>&1; then
-  echo "No existing filesystem detected on $DATA_DEV. Formatting with XFS..."
+
+# Filesystem verification: Verify existing filesystem is strictly XFS before mounting
+FS_TYPE=$(blkid -s TYPE -o value "$DATA_DEV" || true)
+if [ -z "$FS_TYPE" ]; then
+  echo "No existing filesystem detected on $DATA_DEV. Formatting with XFS (label: ZYVEN_DATA)..."
   mkfs.xfs -L ZYVEN_DATA "$DATA_DEV"
+elif [ "$FS_TYPE" = "xfs" ]; then
+  echo "Verified existing XFS filesystem on $DATA_DEV. Preserving existing database data."
 else
-  echo "Existing filesystem detected on $DATA_DEV. Preserving existing database data."
+  echo "FATAL: Block device $DATA_DEV has unsupported filesystem type '$FS_TYPE' (expected 'xfs'). Halting deployment to prevent data corruption." >&2
+  exit 1
 fi
 
 mkdir -p /mnt/data
@@ -84,9 +128,30 @@ if ! mountpoint -q /mnt/data; then
   exit 1
 fi
 
+# Create directory tree & sentinel verification files
 mkdir -p /mnt/data/postgres /mnt/data/backups
+touch /mnt/data/.zyven_ebs_mounted
+touch /mnt/data/postgres/.zyven_ebs_mounted
 chown -R 70:70 /mnt/data/postgres
 chmod 700 /mnt/data/postgres /mnt/data/backups
+
+# 4. Docker Service Setup with Mount Ordering Dependency
+# Prevent Docker daemon from starting if /mnt/data is not mounted
+mkdir -p /etc/systemd/system/docker.service.d
+cat <<'EOF' > /etc/systemd/system/docker.service.d/mount.conf
+[Unit]
+RequiresMountsFor=/mnt/data
+EOF
+systemctl daemon-reload
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# Install Docker Compose Plugin v2
+DOCKER_CONFIG=${DOCKER_CONFIG:-/usr/local/lib/docker}
+mkdir -p "$DOCKER_CONFIG/cli-plugins"
+curl -SL https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-linux-aarch64 \
+  -o "$DOCKER_CONFIG/cli-plugins/docker-compose"
+chmod +x "$DOCKER_CONFIG/cli-plugins/docker-compose"
 
 # 5. Root-Only In-Memory Env Vault (/run/zyven on tmpfs)
 mkdir -p /run/zyven
@@ -104,6 +169,11 @@ ENV_FILE="/run/zyven/.env"
 echo "Verifying persistent storage mount..."
 if ! mountpoint -q /mnt/data; then
   echo "FATAL: /mnt/data is not mounted! Refusing to start PostgreSQL to protect against root disk pollution." >&2
+  exit 1
+fi
+
+if [ ! -f /mnt/data/.zyven_ebs_mounted ] || [ ! -f /mnt/data/postgres/.zyven_ebs_mounted ]; then
+  echo "FATAL: EBS mount sentinel (/mnt/data/.zyven_ebs_mounted) is missing! Halting deployment." >&2
   exit 1
 fi
 

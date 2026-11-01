@@ -35,17 +35,26 @@ unset KEY
 Always test the dump in a throwaway container before restoring to production:
 ```bash
 # 1. Launch throwaway PostgreSQL container
-docker run -d --name restore-test-db -e POSTGRES_PASSWORD=restore_test_pass postgres:16-alpine
+docker run -d --name restore-test-db \
+  -e POSTGRES_USER=zyven_app \
+  -e POSTGRES_PASSWORD=restore_test_pass \
+  -e POSTGRES_DB=zyven_prod \
+  postgres:16-alpine
 sleep 3
 
 # 2. Execute pg_restore
 docker cp "$DUMP_FILE" restore-test-db:/tmp/restore.dump
-docker exec restore-test-db pg_restore -U postgres -d postgres --clean --if-exists /tmp/restore.dump
+docker exec restore-test-db pg_restore -U zyven_app -d zyven_prod --no-owner --role=zyven_app --clean --if-exists /tmp/restore.dump
 
-# 3. Verify integrity
-docker exec restore-test-db psql -U postgres -d postgres -c "SELECT count(*) FROM users;"
-docker exec restore-test-db psql -U postgres -d postgres -c "SELECT count(*) FROM businesses;"
-docker exec restore-test-db psql -U postgres -d postgres -c "SELECT count(*) FROM orders;"
+# 3. Verify integrity across schema, records, and Prisma migrations
+docker exec restore-test-db psql -U zyven_app -d zyven_prod -c "\dt"
+docker exec restore-test-db psql -U zyven_app -d zyven_prod -c "
+SELECT 'users' as tbl, count(*) FROM users
+UNION ALL SELECT 'businesses', count(*) FROM businesses
+UNION ALL SELECT 'orders', count(*) FROM orders
+UNION ALL SELECT '_prisma_migrations', count(*) FROM _prisma_migrations;
+"
+docker exec restore-test-db psql -U zyven_app -d zyven_prod -c "SELECT id, checksum, migration_name FROM _prisma_migrations;"
 
 # 4. Clean up test container
 docker stop restore-test-db && docker rm restore-test-db
@@ -60,7 +69,7 @@ docker compose -f /opt/zyven/docker-compose.prod.yml stop app
 
 # 2. Restore database
 docker cp "$DUMP_FILE" zyven-db:/tmp/restore.dump
-docker exec zyven-db pg_restore -U zyven_app -d zyven_prod --clean --if-exists /tmp/restore.dump
+docker exec zyven-db pg_restore -U zyven_app -d zyven_prod --no-owner --role=zyven_app --clean --if-exists /tmp/restore.dump
 
 # 3. Restart application
 docker compose -f /opt/zyven/docker-compose.prod.yml start app

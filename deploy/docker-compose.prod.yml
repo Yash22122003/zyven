@@ -8,6 +8,17 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-zyven_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-zyven_prod}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    entrypoint:
+      - sh
+      - -c
+      - >
+        if [ ! -f /var/lib/postgresql/data/.zyven_ebs_mounted ]; then
+          echo "FATAL: Persistent EBS data volume is not mounted (/mnt/data/postgres/.zyven_ebs_mounted missing)!" >&2;
+          echo "Halting container to prevent initializing database on the root disk." >&2;
+          exit 1;
+        fi;
+        exec docker-entrypoint.sh postgres
     volumes:
       - /mnt/data/postgres:/var/lib/postgresql/data
     networks:
