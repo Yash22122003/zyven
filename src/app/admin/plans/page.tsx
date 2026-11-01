@@ -129,7 +129,7 @@ export default function AdminPlansPage() {
 
                 <div className="mt-4 flex items-baseline gap-1">
                   <span className="text-3xl font-extrabold text-zinc-950">
-                    {formatCurrency(plan.priceInr)}
+                    {formatCurrency(plan.priceInr ?? plan.price ?? 0)}
                   </span>
                   <span className="text-xs text-zinc-500">
                     / {plan.billingIntervalMonths === 12 ? 'year' : 'month'}
