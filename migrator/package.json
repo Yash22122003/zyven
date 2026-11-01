@@ -1,0 +1,8 @@
+{
+  "name": "zyven-migrator",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "prisma": "5.22.0"
+  }
+}
