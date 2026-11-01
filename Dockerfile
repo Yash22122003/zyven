@@ -53,7 +53,7 @@ ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
 # Run as non-root user for container security
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 prismauser
+    adduser --system --uid 1001 -G nodejs prismauser
 
 COPY --from=migrator-builder --chown=prismauser:nodejs /app/node_modules ./node_modules
 COPY --chown=prismauser:nodejs prisma/schema.prisma ./prisma/schema.prisma
@@ -74,7 +74,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Enforce non-root execution for container security
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+    adduser --system --uid 1001 -G nodejs nextjs
 
 # The project does not currently have a /public directory.
 # Creating an empty folder ensures consistency if static files are mounted or served.
