@@ -84,11 +84,12 @@ services:
 
   # 4. Cloudflare Tunnel Daemon (Outbound-only secure ingress)
   tunnel:
+    container_name: zyven-tunnel
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    command: tunnel run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token-file /etc/cloudflared/token
+    volumes:
+      - /run/zyven/tunnel.token:/etc/cloudflared/token:ro
     networks:
       - zyven-internal
     depends_on:

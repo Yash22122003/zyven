@@ -36,33 +36,57 @@ if [ ! -f /swapfile ]; then
 fi
 
 # 4. Encrypted Persistent EBS Mount (/mnt/data)
-# Waiting for attached data volume (e.g. /dev/xvdf or /dev/nvme1n1)
-DATA_DEV="/dev/nvme1n1"
-if [ ! -b "$DATA_DEV" ]; then
-  DATA_DEV="/dev/xvdf"
+# Poll and wait up to 60 seconds for the dedicated EBS data volume to attach
+DATA_DEV=""
+echo "Waiting for dedicated EBS data volume to attach..."
+for i in $(seq 1 30); do
+  if [ -b "/dev/nvme1n1" ]; then
+    DATA_DEV="/dev/nvme1n1"
+    break
+  elif [ -b "/dev/xvdf" ]; then
+    DATA_DEV="/dev/xvdf"
+    break
+  fi
+  echo "Data volume not attached yet. Sleeping 2s (attempt $i/30)..."
+  sleep 2
+done
+
+if [ -z "$DATA_DEV" ] || [ ! -b "$DATA_DEV" ]; then
+  echo "FATAL: Dedicated persistent EBS volume failed to attach within 60 seconds." >&2
+  echo "Halting deployment to prevent initializing database on the root volume." >&2
+  exit 1
 fi
 
-if [ -b "$DATA_DEV" ]; then
-  echo "Mounting dedicated persistent EBS volume: $DATA_DEV"
-  if ! blkid "$DATA_DEV" > /dev/null; then
-    echo "Formatting $DATA_DEV with XFS..."
-    mkfs.xfs "$DATA_DEV"
-  fi
-  mkdir -p /mnt/data
-  UUID=$(blkid -s UUID -o value "$DATA_DEV")
-  if ! grep -q "$UUID" /etc/fstab; then
-    echo "UUID=$UUID /mnt/data xfs defaults,noatime 0 2" >> /etc/fstab
-  fi
-  mount -a
-  mkdir -p /mnt/data/postgres
-  chown -R 70:70 /mnt/data/postgres
-  chmod 700 /mnt/data/postgres
+echo "Detected persistent block device: $DATA_DEV"
+# Never format an existing filesystem: format ONLY if blkid detects no filesystem header
+if ! blkid "$DATA_DEV" > /dev/null 2>&1; then
+  echo "No existing filesystem detected on $DATA_DEV. Formatting with XFS..."
+  mkfs.xfs -L ZYVEN_DATA "$DATA_DEV"
 else
-  echo "Warning: Dedicated EBS device not found. Creating local directory /mnt/data"
-  mkdir -p /mnt/data/postgres
-  chown -R 70:70 /mnt/data/postgres
-  chmod 700 /mnt/data/postgres
+  echo "Existing filesystem detected on $DATA_DEV. Preserving existing database data."
 fi
+
+mkdir -p /mnt/data
+UUID=$(blkid -s UUID -o value "$DATA_DEV")
+if [ -z "$UUID" ]; then
+  echo "FATAL: Failed to retrieve UUID for $DATA_DEV" >&2
+  exit 1
+fi
+
+if ! grep -q "$UUID" /etc/fstab; then
+  echo "UUID=$UUID /mnt/data xfs defaults,noatime,nofail 0 2" >> /etc/fstab
+fi
+
+mountpoint -q /mnt/data || mount /mnt/data
+
+if ! mountpoint -q /mnt/data; then
+  echo "FATAL: /mnt/data failed to mount. Halting deployment." >&2
+  exit 1
+fi
+
+mkdir -p /mnt/data/postgres /mnt/data/backups
+chown -R 70:70 /mnt/data/postgres
+chmod 700 /mnt/data/postgres /mnt/data/backups
 
 # 5. Root-Only In-Memory Env Vault (/run/zyven on tmpfs)
 mkdir -p /run/zyven
@@ -76,6 +100,12 @@ set -euo pipefail
 REGION="ap-south-1"
 PARAM_PATH="/zyven/prod"
 ENV_FILE="/run/zyven/.env"
+
+echo "Verifying persistent storage mount..."
+if ! mountpoint -q /mnt/data; then
+  echo "FATAL: /mnt/data is not mounted! Refusing to start PostgreSQL to protect against root disk pollution." >&2
+  exit 1
+fi
 
 echo "Fetching SSM parameters from ${PARAM_PATH}..."
 umask 077
@@ -91,6 +121,10 @@ PARAMETERS=$(aws ssm get-parameters-by-path \
 while IFS=$'\t' read -r name value; do
   var_name=$(basename "$name")
   echo "${var_name}=${value}" >> "$ENV_FILE"
+  if [ "$var_name" = "CLOUDFLARE_TUNNEL_TOKEN" ]; then
+    printf "%s" "$value" > /run/zyven/tunnel.token
+    chmod 600 /run/zyven/tunnel.token
+  fi
 done <<< "$PARAMETERS"
 
 # Log into ECR
