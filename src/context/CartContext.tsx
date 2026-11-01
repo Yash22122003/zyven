@@ -174,8 +174,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     });
   }, [saveCart]);
 
-  const totalCount = cart.items.reduce((acc, i) => acc + i.quantity, 0);
-  const subtotal = cart.items.reduce((acc, i) => acc + i.price * i.quantity, 0);
+  const totalCount = cart.items.reduce((acc, i) => acc + (Number(i.quantity) || 0), 0);
+  const subtotal = cart.items.reduce((acc, i) => acc + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
 
   return (
     <CartContext.Provider

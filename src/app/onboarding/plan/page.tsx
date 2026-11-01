@@ -170,7 +170,7 @@ export default function OnboardingPlanPage() {
 
                   <div className="mt-4 flex items-baseline gap-1">
                     <span className="text-4xl font-extrabold tracking-tight text-zinc-950">
-                      {formatCurrency(plan.priceInr)}
+                      {formatCurrency(plan.priceInr ?? 0)}
                     </span>
                     <span className="text-xs text-zinc-500 font-medium">
                       /{plan.billingIntervalMonths === 12 ? 'year' : 'month'}

@@ -193,7 +193,10 @@ export default function OnboardingCheckoutPage() {
     }
   };
 
-  if (loading) {
+  const { business } = state || {};
+  const plan = business?.selectedPlan;
+
+  if (loading || (!plan && !paymentSuccess)) {
     return (
       <div className="max-w-md mx-auto px-4 py-16 space-y-4">
         <div className="h-8 w-48 bg-zinc-200 rounded animate-pulse" />
@@ -201,9 +204,6 @@ export default function OnboardingCheckoutPage() {
       </div>
     );
   }
-
-  const { business } = state || {};
-  const plan = business?.selectedPlan;
 
   if (paymentSuccess) {
     return (
@@ -282,13 +282,13 @@ export default function OnboardingCheckoutPage() {
                 </span>
               </div>
               <span className="font-mono font-bold text-zinc-900">
-                {formatCurrency(plan.priceInr)}
+                {formatCurrency(plan.priceInr ?? plan.price ?? 0)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-zinc-500">
               <span>Platform SaaS Fee</span>
-              <span className="font-mono">{formatCurrency(plan.priceInr)}</span>
+              <span className="font-mono">{formatCurrency(plan.priceInr ?? plan.price ?? 0)}</span>
             </div>
 
             <div className="flex items-center justify-between text-zinc-500">
@@ -305,7 +305,7 @@ export default function OnboardingCheckoutPage() {
               <span className="font-bold text-sm text-zinc-950">Total Payable Now</span>
               <div className="text-right">
                 <span className="text-2xl font-extrabold font-mono text-zinc-950">
-                  {formatCurrency(plan.priceInr)}
+                  {formatCurrency(plan.priceInr ?? plan.price ?? 0)}
                 </span>
                 <div className="text-[10px] text-zinc-400">
                   {plan.isIntroductory ? 'Introductory promo for month 1' : 'Inclusive of all charges'}
@@ -329,7 +329,7 @@ export default function OnboardingCheckoutPage() {
                   ? 'Verifying Payment Cryptography...'
                   : paymentInitiating
                   ? 'Opening Razorpay UPI...'
-                  : `Pay ${formatCurrency(plan.priceInr)} & Activate Store`}
+                  : `Pay ${formatCurrency(plan.priceInr ?? plan.price ?? 0)} & Activate Store`}
               </span>
             </Button>
 

@@ -94,7 +94,7 @@ export function UpiPaymentCard({
           </div>
         </div>
 
-        {amount !== undefined && (
+        {amount !== undefined && amount !== null && (
           <div className="text-right">
             <div className="text-[10px] text-zinc-600 font-medium uppercase tracking-wider">Amount Due</div>
             <div className="text-base font-extrabold text-zinc-950">{formatCurrency(amount)}</div>
