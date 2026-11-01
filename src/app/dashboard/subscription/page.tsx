@@ -67,7 +67,7 @@ export default function MerchantSubscriptionPage() {
             <div className="text-left sm:text-right">
               <div className="flex items-baseline gap-1">
                 <span className="text-4xl font-extrabold text-zinc-950">
-                  {formatCurrency(subscription.price)}
+                  {formatCurrency(subscription.priceInr ?? subscription.price ?? 0)}
                 </span>
                 <span className="text-xs text-zinc-500 font-medium">/ month</span>
               </div>
@@ -105,7 +105,7 @@ export default function MerchantSubscriptionPage() {
               <div className="flex justify-between text-zinc-600">
                 <span>Standard Post-Promo Rate:</span>
                 <span className="font-semibold text-zinc-900">
-                  {formatCurrency(subscription.standardRenewalPrice)} / month
+                  {formatCurrency(subscription.standardRenewalPrice ?? 299)} / month
                 </span>
               </div>
             </div>
@@ -148,7 +148,7 @@ export default function MerchantSubscriptionPage() {
                   <tr key={p.id} className="hover:bg-zinc-50/50">
                     <td className="py-3 px-4 text-zinc-600">{formatDate(p.createdAt)}</td>
                     <td className="py-3 px-4 font-bold text-zinc-950">
-                      {formatCurrency(p.amount)}
+                      {formatCurrency(p.amount ?? 0)}
                     </td>
                     <td className="py-3 px-4 text-zinc-700">{p.paymentMethod}</td>
                     <td className="py-3 px-4 font-mono text-[11px] text-zinc-500">
