@@ -1,0 +1,44 @@
+#!/bin/bash
+# ==============================================================================
+# ZYVEN Automated Backup & Off-AWS Replication Script
+# ==============================================================================
+set -euo pipefail
+
+BACKUP_DIR="/mnt/data/backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DUMP_FILE="${BACKUP_DIR}/zyven_backup_${TIMESTAMP}.dump"
+ENC_FILE="${DUMP_FILE}.enc"
+
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
+
+echo "=== Starting ZYVEN Database Backup at $(date -u) ==="
+
+# 1. Execute pg_dump from within PostgreSQL container in custom format
+docker exec -t zyven-db-1 pg_dump -U zyven_app -Fc zyven_prod > "$DUMP_FILE"
+
+# 2. Client-Side Encryption using AES-256-CBC
+ENCRYPTION_KEY=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_ENCRYPTION_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1)
+
+openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+  -in "$DUMP_FILE" \
+  -out "$ENC_FILE" \
+  -pass pass:"$ENCRYPTION_KEY"
+
+rm -f "$DUMP_FILE"
+
+# 3. Off-AWS Replication (Cloudflare R2 / Backblaze B2 via AWS CLI S3 endpoint)
+R2_ENDPOINT="https://<account-id>.r2.cloudflarestorage.com"
+BUCKET_NAME="zyven-production-backups"
+
+# Upload encrypted artifact
+AWS_ACCESS_KEY_ID=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_S3_ACCESS_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1) \
+AWS_SECRET_ACCESS_KEY=$(aws ssm get-parameter --name "/zyven/prod/BACKUP_S3_SECRET_KEY" --with-decryption --query "Parameter.Value" --output text --region ap-south-1) \
+aws s3 cp "$ENC_FILE" "s3://${BUCKET_NAME}/daily/$(basename "$ENC_FILE")" --endpoint-url "$R2_ENDPOINT"
+
+echo "Backup uploaded successfully: $(basename "$ENC_FILE")"
+
+# 4. Local Retention: Retain 7 daily snapshots on disk
+find "$BACKUP_DIR" -type f -name "*.enc" -mtime +7 -delete
+
+echo "=== Backup Process Completed Successfully ==="
