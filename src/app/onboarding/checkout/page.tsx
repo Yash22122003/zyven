@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
@@ -20,7 +20,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-export default function OnboardingCheckoutPage() {
+function OnboardingCheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialFailed = searchParams.get('status') === 'failed';
@@ -351,5 +351,20 @@ export default function OnboardingCheckoutPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function OnboardingCheckoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-md mx-auto px-4 py-16 space-y-4">
+          <div className="h-8 w-48 bg-zinc-200 rounded animate-pulse" />
+          <div className="h-72 bg-zinc-100 rounded-2xl animate-pulse" />
+        </div>
+      }
+    >
+      <OnboardingCheckoutContent />
+    </Suspense>
   );
 }

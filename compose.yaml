@@ -1,0 +1,33 @@
+# ------------------------------------------------------------------------------
+# Docker Compose for Local Testing of ZYVEN Container
+# Note: This file does NOT replace your existing local PostgreSQL database.
+# On macOS, the container connects to your host PostgreSQL via host.docker.internal.
+# ------------------------------------------------------------------------------
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zyven:latest
+    container_name: zyven-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # Pass through environment variables from host or .env file
+      # Note: On macOS, host.docker.internal resolves to the host machine
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:5432/zyven_db}
+      - JWT_SECRET=${JWT_SECRET}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - NEXT_PUBLIC_APP_DOMAIN=${NEXT_PUBLIC_APP_DOMAIN:-zyven.me}
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-ZYVEN}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - ENABLE_DEMO_LOGIN=${ENABLE_DEMO_LOGIN:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

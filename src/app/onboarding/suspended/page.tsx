@@ -33,11 +33,11 @@ export default function SuspendedStorePage() {
           <div className="font-semibold text-zinc-900">Resolve with Support:</div>
           <div className="flex items-center gap-2 text-zinc-700">
             <Mail className="w-3.5 h-3.5 text-zinc-400" />
-            <span>compliance@zyven.me</span>
+            <span>yashagrahari1995@gmail.com</span>
           </div>
           <div className="flex items-center gap-2 text-zinc-700">
             <Phone className="w-3.5 h-3.5 text-zinc-400" />
-            <span>+91 99990 00001 (Priority Merchant Desk)</span>
+            <span>+91 98914 56914 (Priority Merchant Desk)</span>
           </div>
         </div>
 
